@@ -1,9 +1,10 @@
 import { createServerClient } from "@supabase/ssr";
+import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
-import { serverEnv } from "@/lib/env";
+import { anonEnv, serviceRoleEnv } from "@/lib/env";
 
 export function getSupabaseServerClient() {
-  const env = serverEnv();
+  const env = anonEnv();
   const cookieStore = cookies();
   return createServerClient(env.supabaseUrl, env.supabaseAnonKey, {
     cookies: {
@@ -30,8 +31,7 @@ export function getSupabaseServerClient() {
 
 // For Edge Functions / scripts / n8n callbacks — elevated access.
 export function getSupabaseServiceRoleClient() {
-  const env = serverEnv();
-  const { createClient } = require("@supabase/supabase-js");
+  const env = serviceRoleEnv();
   return createClient(env.supabaseUrl, env.supabaseServiceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });

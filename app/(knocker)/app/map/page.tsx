@@ -18,7 +18,7 @@ export default async function MapPage() {
   }
 
   const supabase = getSupabaseServerClient();
-  const [{ data: households }, { data: walkbooks }] = await Promise.all([
+  const [hhRes, wbRes] = await Promise.all([
     supabase
       .from("households")
       .select("*")
@@ -28,6 +28,10 @@ export default async function MapPage() {
       .select("*")
       .eq("district_id", session.district.id),
   ]);
+  if (hhRes.error) console.error("map: households query failed", hhRes.error);
+  if (wbRes.error) console.error("map: walkbooks query failed", wbRes.error);
+  const households = hhRes.data ?? [];
+  const walkbooks = wbRes.data ?? [];
 
   return (
     <MapView
