@@ -3,16 +3,21 @@ import Link from "next/link";
 import { MapIcon, ClipboardListIcon, UserIcon } from "lucide-react";
 import { loadSession } from "@/lib/auth/session";
 import { SyncBadge } from "@/components/knocker/sync-badge";
+import { getActiveClient } from "@/lib/clients/active";
 
 export default async function KnockerLayout({ children }: { children: React.ReactNode }) {
-  const session = await loadSession();
+  const [session, client] = await Promise.all([loadSession(), getActiveClient()]);
   if (!session) redirect("/login");
+  const brandLabel = client?.brand?.short_name ?? client?.name ?? "Campaign OS";
 
   return (
     <div className="flex h-screen flex-col bg-background">
-      <header className="flex items-center justify-between border-b border-border bg-navy px-4 py-3 text-white">
+      <header
+        className="flex items-center justify-between border-b border-border px-4 py-3 text-white"
+        style={{ backgroundColor: "var(--client-primary)" }}
+      >
         <div>
-          <p className="text-[10px] uppercase tracking-widest text-navy-50/70">Campaign OS</p>
+          <p className="text-[10px] uppercase tracking-widest text-white/70">{brandLabel}</p>
           <h1 className="text-sm font-semibold">
             {session.district?.name ?? "Door Knock"}
           </h1>

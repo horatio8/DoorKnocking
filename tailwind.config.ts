@@ -61,6 +61,11 @@ const config: Config = {
           500: "#D4242D",
           700: "#8F0C13",
         },
+        // Client-themeable tokens. Use `bg-client-primary`, `text-client-accent` etc.
+        client: {
+          primary: "var(--client-primary)",
+          accent: "var(--client-accent)",
+        },
         pin: {
           not_knocked: "#2563EB",
           come_back: "#F59E0B",

@@ -4,6 +4,11 @@
 
 @layer base {
   :root {
+    /* Per-client brand overrides — apex/default values. Middleware-resolved
+       client injects its own values via a server-rendered <style> tag. */
+    --client-primary: #0B1F3A;
+    --client-accent:  #B5121B;
+
     --background: 0 0% 100%;
     --foreground: 215 50% 12%;
 

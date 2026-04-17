@@ -804,3 +804,132 @@ alter table public.sync_state enable row level security;
 drop policy if exists sync_state_deny on public.sync_state;
 create policy sync_state_deny on public.sync_state for all
   using (false) with check (false);
+-- Multi-client support: clients table sits above districts.
+-- One client (campaign, org) can own many districts. Everything else
+-- (households, voters, walkbooks, knocks…) inherits client scope via its
+-- district_id → districts.client_id chain.
+
+create table if not exists public.clients (
+  id uuid primary key default gen_random_uuid(),
+  slug text not null unique,                 -- subdomain: <slug>.campaignos.com
+  name text not null,
+  brand jsonb not null default '{}'::jsonb,  -- { primary_color, accent_color, logo_url, short_name }
+  contact_email text,
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists clients_active_idx on public.clients (active);
+
+-- Seed a default client for existing Teller / HD-115 data.
+insert into public.clients (slug, name, brand, contact_email)
+values (
+  'teller',
+  'Teller Consulting Group',
+  jsonb_build_object(
+    'primary_color', '#0B1F3A',
+    'accent_color',  '#B5121B',
+    'short_name',    'Teller'
+  ),
+  'hello@tellerconsulting.com'
+)
+on conflict (slug) do nothing;
+
+-- Attach districts to a client.
+alter table public.districts
+  add column if not exists client_id uuid references public.clients (id) on delete cascade;
+
+-- Backfill any existing districts onto the default Teller client.
+update public.districts
+   set client_id = (select id from public.clients where slug = 'teller')
+ where client_id is null;
+
+-- Now enforce not-null
+alter table public.districts
+  alter column client_id set not null;
+
+create index if not exists districts_client_idx on public.districts (client_id);
+
+-- Users gain client-level access. Super-admins span all clients; regular
+-- admins may span many (consulting staff) or one (client's own admin).
+alter table public.users
+  add column if not exists client_access uuid[] not null default '{}';
+
+-- Backfill: anyone who already has district_access for a district under a
+-- client also gets that client in their client_access.
+update public.users u
+   set client_access = (
+     select coalesce(array_agg(distinct d.client_id), '{}'::uuid[])
+       from public.districts d
+      where d.id = any(u.district_access)
+   )
+ where cardinality(coalesce(u.client_access, '{}'::uuid[])) = 0
+   and cardinality(coalesce(u.district_access, '{}'::uuid[])) > 0;
+
+create index if not exists users_client_access_idx on public.users using gin (client_access);
+-- RLS helpers and policy updates for the clients layer.
+
+create or replace function public.has_client_access(c uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select public.is_super_admin()
+      or exists (
+        select 1 from public.users u
+        where u.id = auth.uid()
+          and c = any(coalesce(u.client_access, '{}'::uuid[]))
+      );
+$$;
+
+-- Re-derive has_district_access so it also honours client membership, in case
+-- a user only has client_access (the future state) with no explicit district.
+create or replace function public.has_district_access(d uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select public.is_super_admin()
+      or exists (
+        select 1
+          from public.users u
+          join public.districts dd on dd.id = d
+         where u.id = auth.uid()
+           and (
+             d = any(coalesce(u.district_access, '{}'::uuid[]))
+             or u.default_district_id = d
+             or dd.client_id = any(coalesce(u.client_access, '{}'::uuid[]))
+           )
+      );
+$$;
+
+-- Clients table: super-admins full CRUD; anyone with client_access may read
+-- their own client.
+alter table public.clients enable row level security;
+
+drop policy if exists clients_read on public.clients;
+create policy clients_read on public.clients for select
+  using (public.has_client_access(id));
+
+drop policy if exists clients_super_write on public.clients;
+create policy clients_super_write on public.clients for all
+  using (public.is_super_admin()) with check (public.is_super_admin());
+
+-- Districts: tighten to also require client access.
+drop policy if exists districts_read on public.districts;
+create policy districts_read on public.districts for select
+  using (public.has_client_access(client_id));
+
+drop policy if exists districts_write on public.districts;
+drop policy if exists districts_super_write on public.districts;
+create policy districts_super_write on public.districts for all
+  using (public.is_super_admin()) with check (public.is_super_admin());
+
+drop policy if exists districts_admin_write on public.districts;
+create policy districts_admin_write on public.districts for update
+  using (public.is_admin() and public.has_client_access(client_id))
+  with check (public.is_admin() and public.has_client_access(client_id));

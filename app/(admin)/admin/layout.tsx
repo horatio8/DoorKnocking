@@ -17,6 +17,7 @@ import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { DistrictSwitcher } from "@/components/admin/district-switcher";
 import { LogoutButton } from "@/components/knocker/logout-button";
 import type { District } from "@/lib/types";
+import { getActiveClient } from "@/lib/clients/active";
 
 const NAV = [
   { href: "/admin", label: "Overview", icon: BarChart3 },
@@ -29,7 +30,10 @@ const NAV = [
   { href: "/admin/export", label: "Export", icon: Download },
 ];
 
-const SUPER_NAV = [{ href: "/admin/districts", label: "Districts", icon: MapPin }];
+const SUPER_NAV = [
+  { href: "/admin/clients", label: "Clients", icon: MapPin },
+  { href: "/admin/districts", label: "Districts", icon: MapPin },
+];
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await loadSession();
@@ -39,15 +43,20 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   }
 
   const supabase = getSupabaseServerClient();
-  const { data: districts } = await supabase.from("districts").select("*").order("name");
+  const client = await getActiveClient();
+
+  const districtQuery = supabase.from("districts").select("*").order("name");
+  if (client) districtQuery.eq("client_id", client.id);
+  const { data: districts } = await districtQuery;
 
   const nav = [...NAV, ...(session.user.role === "super_admin" ? SUPER_NAV : [])];
+  const brandLabel = client?.name ?? "Campaign OS";
 
   return (
     <div className="flex min-h-screen bg-navy-50">
       <aside className="hidden w-60 flex-col border-r border-border bg-white md:flex">
         <div className="border-b border-border p-5">
-          <p className="text-[10px] uppercase tracking-widest text-navy-500">Campaign OS</p>
+          <p className="text-[10px] uppercase tracking-widest text-navy-500">{brandLabel}</p>
           <p className="font-serif text-lg font-semibold text-navy-900">Door Knock</p>
         </div>
         <nav className="flex-1 space-y-0.5 p-3 text-sm">
