@@ -171,7 +171,8 @@ export function MapView({ userId, districtId, households: initialHouseholds, wal
         if (!cluster) return;
         source.getClusterExpansionZoom((cluster.properties as { cluster_id: number }).cluster_id, (err, zoom) => {
           if (err) return;
-          map.easeTo({ center: (cluster.geometry as { coordinates: [number, number] }).coordinates, zoom });
+          const geom = cluster.geometry as unknown as { coordinates: [number, number] };
+          map.easeTo({ center: geom.coordinates, zoom });
         });
       });
       map.on("mouseenter", "household-points", () => (map.getCanvas().style.cursor = "pointer"));
