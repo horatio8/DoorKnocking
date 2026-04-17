@@ -58,7 +58,10 @@ export default async function AdminOverview() {
       .select("id, status, knocked_at, user_id, household_id, voter_id, users(full_name)")
       .order("knocked_at", { ascending: false })
       .limit(20),
-    supabase.rpc("admin_leaderboard_week", {}).then((r) => r).catch(() => ({ data: [] as unknown })),
+    Promise.resolve(supabase.rpc("admin_leaderboard_week", {})).then(
+      (r) => r,
+      () => ({ data: [] as unknown }),
+    ),
   ]);
 
   const pct =
