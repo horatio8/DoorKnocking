@@ -8,21 +8,16 @@ export function getSupabaseServerClient() {
   const cookieStore = cookies();
   return createServerClient(env.supabaseUrl, env.supabaseAnonKey, {
     cookies: {
-      get(name: string) {
-        return cookieStore.get(name)?.value;
+      getAll() {
+        return cookieStore.getAll();
       },
-      set(name: string, value: string, options: Record<string, unknown>) {
+      setAll(cookiesToSet) {
         try {
-          cookieStore.set({ name, value, ...options });
+          for (const { name, value, options } of cookiesToSet) {
+            cookieStore.set({ name, value, ...(options as object) });
+          }
         } catch {
           // Called from a server component — Next forbids writes here; safe to ignore.
-        }
-      },
-      remove(name: string, options: Record<string, unknown>) {
-        try {
-          cookieStore.set({ name, value: "", ...options });
-        } catch {
-          // See above.
         }
       },
     },

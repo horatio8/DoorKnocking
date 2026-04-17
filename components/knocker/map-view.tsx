@@ -58,8 +58,8 @@ export function MapView({ userId, districtId, households: initialHouseholds, wal
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "households", filter: `district_id=eq.${districtId}` },
-        (payload) => {
-          const row = payload.new as Household | undefined;
+        (payload: { new?: Household }) => {
+          const row = payload.new;
           if (!row) return;
           const store = useFieldStore.getState();
           const existing = store.households.get(row.id);

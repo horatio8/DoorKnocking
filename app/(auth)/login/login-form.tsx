@@ -18,27 +18,42 @@ export function LoginForm() {
     setSubmitting(true);
     setError(null);
     const supabase = getSupabaseBrowserClient();
-    const { data, error: authError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    if (authError || !data.session) {
-      setError(authError?.message ?? "Sign in failed");
+    try {
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Sign-in timed out after 15s")), 15_000),
+      );
+      const { data, error: authError } = (await Promise.race([
+        supabase.auth.signInWithPassword({ email, password }),
+        timeout,
+      ])) as Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>;
+
+      if (authError || !data?.session) {
+        setError(authError?.message ?? "Sign in failed");
+        setSubmitting(false);
+        return;
+      }
+
+      const { data: profile, error: profileError } = await supabase
+        .from("users")
+        .select("role")
+        .eq("id", data.session.user.id)
+        .maybeSingle();
+      if (profileError) {
+        console.error("login: profile lookup failed", profileError);
+      }
+      const role = (profile as { role?: string } | null)?.role;
+      if (role === "admin" || role === "super_admin") {
+        router.replace("/admin");
+      } else {
+        router.replace("/app");
+      }
+      router.refresh();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Sign in failed";
+      console.error("login: unexpected error", err);
+      setError(message);
       setSubmitting(false);
-      return;
     }
-    const { data: profile } = await supabase
-      .from("users")
-      .select("role")
-      .eq("id", data.session.user.id)
-      .maybeSingle();
-    const role = (profile as { role?: string } | null)?.role;
-    if (role === "admin" || role === "super_admin") {
-      router.replace("/admin");
-    } else {
-      router.replace("/app");
-    }
-    router.refresh();
   }
 
   return (
