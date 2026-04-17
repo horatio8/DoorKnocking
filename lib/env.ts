@@ -37,6 +37,12 @@ export function airtableEnv() {
   };
 }
 
+export function anthropicEnv() {
+  return {
+    apiKey: req("ANTHROPIC_API_KEY", process.env.ANTHROPIC_API_KEY),
+  };
+}
+
 export function mapboxServerEnv() {
   return {
     secretToken: process.env.MAPBOX_SECRET_TOKEN || undefined,

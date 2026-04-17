@@ -3,6 +3,7 @@ import Link from "next/link";
 import {
   BarChart3,
   ClipboardList,
+  Database,
   Download,
   Flag,
   Home,
@@ -21,6 +22,7 @@ import { getActiveClient } from "@/lib/clients/active";
 
 const NAV = [
   { href: "/admin", label: "Overview", icon: BarChart3 },
+  { href: "/admin/airtable", label: "Airtable sync", icon: Database },
   { href: "/admin/walkbooks", label: "Walkbooks", icon: Map },
   { href: "/admin/users", label: "Users", icon: Users },
   { href: "/admin/surveys", label: "Surveys", icon: ClipboardList },
