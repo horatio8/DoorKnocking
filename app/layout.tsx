@@ -1,0 +1,45 @@
+import type { Metadata, Viewport } from "next";
+import "./globals.css";
+import { Providers } from "@/components/providers";
+
+export const metadata: Metadata = {
+  title: "Campaign OS — Door Knock",
+  description: "District-agnostic door-knock management for campaign teams.",
+  manifest: "/manifest.webmanifest",
+  applicationName: "Campaign OS Door Knock",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Campaign OS",
+  },
+  icons: {
+    icon: "/icons/icon-192.png",
+    apple: "/icons/icon-192.png",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0B1F3A",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  viewportFit: "cover",
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+Pro:wght@400;600&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body>
+        <Providers>{children}</Providers>
+      </body>
+    </html>
+  );
+}

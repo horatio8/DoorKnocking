@@ -1,0 +1,32 @@
+node_modules/
+.next/
+.vercel
+out/
+
+# env
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.DS_Store
+
+# supabase
+.branches
+.temp/
+supabase/.branches
+supabase/.temp
+
+# testing
+coverage/
+playwright-report/
+test-results/
+.vitest-cache/
