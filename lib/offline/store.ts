@@ -3,7 +3,15 @@
 import { create } from "zustand";
 import { v4 as uuid } from "uuid";
 import { enqueue, pendingOutboxCount } from "./db";
-import type { Household, KnockEvent, KnockStatus, Tag, Voter } from "@/lib/types";
+import type {
+  Household,
+  HouseholdStatus,
+  KnockEvent,
+  KnockStatus,
+  Tag,
+  Voter,
+  VoterStatus,
+} from "@/lib/types";
 
 interface FieldState {
   userId: string | null;
@@ -134,7 +142,7 @@ export const useFieldStore = create<FieldState>((set, get) => ({
   },
 }));
 
-function mapKnockToHouseholdStatus(status: KnockStatus) {
+function mapKnockToHouseholdStatus(status: KnockStatus): HouseholdStatus {
   switch (status) {
     case "no_answer": return "no_answer";
     case "come_back_later": return "come_back_later";
@@ -144,7 +152,7 @@ function mapKnockToHouseholdStatus(status: KnockStatus) {
   }
 }
 
-function mapKnockToVoterStatus(status: KnockStatus) {
+function mapKnockToVoterStatus(status: KnockStatus): VoterStatus {
   switch (status) {
     case "no_answer": return "no_answer";
     case "come_back_later": return "come_back_later";

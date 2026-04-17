@@ -7,15 +7,15 @@ export async function updateSession(request: NextRequest) {
 
   const supabase = createServerClient(publicEnv.supabaseUrl, publicEnv.supabaseAnonKey, {
     cookies: {
-      get(name) {
+      get(name: string) {
         return request.cookies.get(name)?.value;
       },
-      set(name, value, options) {
+      set(name: string, value: string, options: Record<string, unknown>) {
         request.cookies.set({ name, value, ...options });
         response = NextResponse.next({ request });
         response.cookies.set({ name, value, ...options });
       },
-      remove(name, options) {
+      remove(name: string, options: Record<string, unknown>) {
         request.cookies.set({ name, value: "", ...options });
         response = NextResponse.next({ request });
         response.cookies.set({ name, value: "", ...options });

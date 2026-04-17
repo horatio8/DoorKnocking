@@ -170,7 +170,7 @@ export function MapView({ userId, districtId, households: initialHouseholds, wal
         const source = map.getSource("households") as GeoJSONSource;
         if (!cluster) return;
         source.getClusterExpansionZoom((cluster.properties as { cluster_id: number }).cluster_id, (err, zoom) => {
-          if (err) return;
+          if (err || zoom == null) return;
           const geom = cluster.geometry as unknown as { coordinates: [number, number] };
           map.easeTo({ center: geom.coordinates, zoom });
         });
