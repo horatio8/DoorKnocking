@@ -103,20 +103,23 @@ export default async function AdminOverview() {
               {(recent ?? []).length === 0 ? (
                 <li className="text-muted-foreground">No activity yet today.</li>
               ) : (
-                (recent ?? []).map((row: {
+                ((recent ?? []) as unknown as Array<{
                   id: string;
                   status: string;
                   knocked_at: string;
-                  users?: { full_name?: string } | null;
-                }) => (
-                  <li key={row.id} className="flex justify-between">
-                    <span>
-                      <strong className="text-navy-900">{row.users?.full_name ?? "Knocker"}</strong>{" "}
-                      · {row.status.replace("_", " ")}
-                    </span>
-                    <span className="text-muted-foreground">{formatRelative(row.knocked_at)}</span>
-                  </li>
-                ))
+                  users?: { full_name?: string } | Array<{ full_name?: string }> | null;
+                }>).map((row) => {
+                  const user = Array.isArray(row.users) ? row.users[0] : row.users;
+                  return (
+                    <li key={row.id} className="flex justify-between">
+                      <span>
+                        <strong className="text-navy-900">{user?.full_name ?? "Knocker"}</strong>{" "}
+                        · {row.status.replace("_", " ")}
+                      </span>
+                      <span className="text-muted-foreground">{formatRelative(row.knocked_at)}</span>
+                    </li>
+                  );
+                })
               )}
             </ul>
           </CardContent>

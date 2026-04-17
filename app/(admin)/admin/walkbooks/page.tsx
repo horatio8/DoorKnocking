@@ -33,15 +33,19 @@ export default async function AdminWalkbooks() {
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {(walkbooks ?? []).map((wb: {
+        {((walkbooks ?? []) as unknown as Array<{
           id: string;
           name: string;
           household_count: number;
           status: string;
           created_at: string;
-          walkbook_assignments?: Array<{ unassigned_at: string | null; users?: { full_name?: string } | null }>;
-        }) => {
+          walkbook_assignments?: Array<{
+            unassigned_at: string | null;
+            users?: { full_name?: string } | Array<{ full_name?: string }> | null;
+          }>;
+        }>).map((wb) => {
           const assignment = wb.walkbook_assignments?.find((a) => a.unassigned_at === null);
+          const assignedUser = Array.isArray(assignment?.users) ? assignment?.users[0] : assignment?.users;
           return (
             <Link key={wb.id} href={`/admin/walkbooks/${wb.id}`}>
               <Card className="transition hover:border-navy-100">
@@ -51,8 +55,8 @@ export default async function AdminWalkbooks() {
                 <CardContent className="text-sm text-muted-foreground">
                   <p>{wb.household_count} households · {wb.status}</p>
                   <p className="mt-1">
-                    {assignment?.users?.full_name
-                      ? `Assigned to ${assignment.users.full_name}`
+                    {assignedUser?.full_name
+                      ? `Assigned to ${assignedUser.full_name}`
                       : "Unassigned"}
                   </p>
                   <p className="text-xs">Created {formatRelative(wb.created_at)}</p>
