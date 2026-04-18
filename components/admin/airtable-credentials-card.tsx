@@ -12,19 +12,29 @@ interface Props {
   clientId: string;
   clientName: string;
   hasToken: boolean;
+  hasOAuth: boolean;
+  oauthEnabled: boolean;
   workspaceId: string | null;
   verifiedAt: string | null;
+  connectedAt: string | null;
 }
 
 export function AirtableCredentialsCard(props: Props) {
   const router = useRouter();
-  const [editing, setEditing] = useState(!props.hasToken);
+  const [showPatEditor, setShowPatEditor] = useState(!props.hasOAuth && !props.hasToken);
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  async function save() {
+  const connected = props.hasOAuth || props.hasToken;
+
+  function connectOAuth() {
+    const returnTo = "/admin/settings";
+    window.location.href = `/api/airtable/oauth/start?clientId=${encodeURIComponent(props.clientId)}&returnTo=${encodeURIComponent(returnTo)}`;
+  }
+
+  async function savePAT() {
     setBusy("Verifying…");
     setError(null);
     setNotice(null);
@@ -40,14 +50,14 @@ export function AirtableCredentialsCard(props: Props) {
       return;
     }
     setToken("");
-    setEditing(false);
+    setShowPatEditor(false);
     setNotice(`Verified — ${body.base_count} base(s) reachable with this token.`);
     router.refresh();
   }
 
-  async function remove() {
-    if (!confirm(`Remove the Airtable token for ${props.clientName}?`)) return;
-    setBusy("Removing…");
+  async function disconnect() {
+    if (!confirm(`Disconnect Airtable for ${props.clientName}? You can reconnect any time.`)) return;
+    setBusy("Disconnecting…");
     setError(null);
     const res = await fetch("/api/admin/settings/airtable", { method: "DELETE" });
     setBusy(null);
@@ -66,26 +76,64 @@ export function AirtableCredentialsCard(props: Props) {
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          Personal Access Token used for every Airtable operation by this client. We never display
-          the token again after saving. Rotate or revoke in Airtable; paste the new value here.
+          Airtable access is scoped per-client. Use the Airtable OAuth flow to authorize access
+          without ever pasting a token, or paste a Personal Access Token as an alternative.
         </p>
 
-        <div className="flex items-center gap-3 text-sm">
+        <div className="flex flex-wrap items-center gap-3 text-sm">
           <span className="text-muted-foreground">Status:</span>
-          {props.hasToken ? (
-            <Badge variant="success">Stored</Badge>
+          {props.hasOAuth ? (
+            <Badge variant="success">OAuth connected</Badge>
+          ) : props.hasToken ? (
+            <Badge variant="success">PAT stored</Badge>
           ) : (
-            <Badge variant="secondary">Not set</Badge>
+            <Badge variant="secondary">Not connected</Badge>
           )}
-          {props.verifiedAt ? (
+          {props.connectedAt ? (
+            <span className="text-xs text-muted-foreground">
+              connected {formatRelative(props.connectedAt)}
+            </span>
+          ) : props.verifiedAt ? (
             <span className="text-xs text-muted-foreground">
               verified {formatRelative(props.verifiedAt)}
             </span>
           ) : null}
         </div>
 
-        {editing ? (
-          <div className="space-y-2">
+        {props.oauthEnabled ? (
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={connectOAuth} disabled={!!busy} variant="accent">
+              {connected ? "Reconnect Airtable" : "Connect Airtable"}
+            </Button>
+            {connected ? (
+              <Button variant="ghost" onClick={disconnect} disabled={!!busy}>
+                Disconnect
+              </Button>
+            ) : null}
+            {!props.hasOAuth ? (
+              <Button
+                variant="outline"
+                onClick={() => setShowPatEditor((v) => !v)}
+                disabled={!!busy}
+              >
+                {showPatEditor ? "Hide PAT option" : props.hasToken ? "Replace PAT" : "Use a PAT instead"}
+              </Button>
+            ) : null}
+          </div>
+        ) : (
+          <div className="rounded-md border border-dashed border-border bg-navy-50/40 p-3 text-xs text-muted-foreground">
+            OAuth sign-in isn&apos;t configured on this deployment. Set{" "}
+            <code>AIRTABLE_OAUTH_CLIENT_ID</code>, <code>AIRTABLE_OAUTH_CLIENT_SECRET</code>, and{" "}
+            <code>AIRTABLE_OAUTH_REDIRECT_URI</code> in Vercel to enable the one-click flow. For now
+            you can paste a Personal Access Token below.
+          </div>
+        )}
+
+        {showPatEditor || !props.oauthEnabled ? (
+          <div className="space-y-2 rounded-md border border-border bg-navy-50/30 p-3">
+            <p className="text-xs font-semibold uppercase tracking-widest text-navy-700">
+              Personal Access Token
+            </p>
             <Input
               type="password"
               placeholder="patXXXX.XXXXXXXXXXXXX"
@@ -99,26 +147,24 @@ export function AirtableCredentialsCard(props: Props) {
               base(s) for this client.
             </p>
             <div className="flex gap-2">
-              <Button onClick={save} disabled={!token || !!busy}>
+              <Button onClick={savePAT} disabled={!token || !!busy}>
                 {busy ?? "Save & verify"}
               </Button>
-              {props.hasToken ? (
-                <Button type="button" variant="ghost" onClick={() => { setEditing(false); setToken(""); }}>
+              {props.hasToken || props.hasOAuth ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    setShowPatEditor(false);
+                    setToken("");
+                  }}
+                >
                   Cancel
                 </Button>
               ) : null}
             </div>
           </div>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => setEditing(true)}>
-              Replace token
-            </Button>
-            <Button variant="ghost" onClick={remove} disabled={!!busy}>
-              Remove
-            </Button>
-          </div>
-        )}
+        ) : null}
 
         {error ? (
           <p className="rounded bg-crimson/10 px-3 py-2 text-xs text-crimson">{error}</p>

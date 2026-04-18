@@ -2,12 +2,17 @@ import { redirect } from "next/navigation";
 import { loadSession } from "@/lib/auth/session";
 import { getActiveClient } from "@/lib/clients/active";
 import { getAirtableCredentialStatus } from "@/lib/airtable/credentials";
+import { isOAuthEnabled } from "@/lib/airtable/oauth";
 import { AirtableCredentialsCard } from "@/components/admin/airtable-credentials-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export const dynamic = "force-dynamic";
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams?: { airtable_connected?: string; airtable_error?: string };
+}) {
   const session = await loadSession();
   if (!session) redirect("/login");
   if (session.user.role !== "admin" && session.user.role !== "super_admin") {
@@ -24,6 +29,7 @@ export default async function SettingsPage() {
   }
 
   const airtable = await getAirtableCredentialStatus(client.id);
+  const oauthEnabled = isOAuthEnabled();
 
   return (
     <div className="space-y-6">
@@ -34,12 +40,26 @@ export default async function SettingsPage() {
         </p>
       </div>
 
+      {searchParams?.airtable_connected ? (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+          Airtable connected successfully.
+        </div>
+      ) : null}
+      {searchParams?.airtable_error ? (
+        <div className="rounded-md border border-crimson/30 bg-crimson/5 p-3 text-sm text-crimson">
+          {searchParams.airtable_error}
+        </div>
+      ) : null}
+
       <AirtableCredentialsCard
         clientId={client.id}
         clientName={client.name}
         hasToken={airtable.has_token}
+        hasOAuth={airtable.has_oauth}
+        oauthEnabled={oauthEnabled}
         workspaceId={airtable.workspace_id}
         verifiedAt={airtable.verified_at}
+        connectedAt={airtable.connected_at}
       />
 
       <Card>

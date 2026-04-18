@@ -975,3 +975,16 @@ alter table public.client_credentials enable row level security;
 drop policy if exists client_credentials_deny on public.client_credentials;
 create policy client_credentials_deny on public.client_credentials for all
   using (false) with check (false);
+
+
+-- Migration 20260418000005_airtable_oauth
+-- Airtable OAuth2 token storage extends client_credentials with access +
+-- refresh tokens, expiry, granted scopes, and audit fields.
+
+alter table public.client_credentials
+  add column if not exists airtable_access_token text,
+  add column if not exists airtable_refresh_token text,
+  add column if not exists airtable_token_expires_at timestamptz,
+  add column if not exists airtable_scopes text[],
+  add column if not exists airtable_user_id text,
+  add column if not exists airtable_connected_at timestamptz;

@@ -248,6 +248,7 @@ export function AirtableConnectionWizard(props: Props) {
 
       {step === "connect" || !proposal ? (
         <ConnectStep
+          districtId={props.districtId}
           baseId={baseId}
           tableId={tableId}
           tables={tables}
@@ -321,6 +322,7 @@ function Stepper({ current }: { current: Step }) {
 }
 
 function ConnectStep({
+  districtId,
   baseId,
   tableId,
   tables,
@@ -333,6 +335,7 @@ function ConnectStep({
   onSuggest,
   busy,
 }: {
+  districtId: string;
   baseId: string;
   tableId: string;
   tables: DiscoveredTable[] | null;
@@ -354,20 +357,34 @@ function ConnectStep({
       : tables.length === 0
         ? "(no tables in this base)"
         : "Select a table…";
+  const returnTo = `/admin/airtable?district=${encodeURIComponent(districtId)}`;
+  const connectUrl = `/api/airtable/oauth/start?districtId=${encodeURIComponent(districtId)}&returnTo=${encodeURIComponent(returnTo)}`;
   return (
     <div className="space-y-4 rounded-lg border border-border bg-white p-4">
       <h2 className="font-medium text-navy-900">Connect an Airtable base</h2>
       <p className="text-xs text-muted-foreground">
         Pick the base and voter table from your Airtable workspace. The list
-        comes from the Personal Access Token saved for this client.
+        comes from whichever Airtable account is connected for this client.
       </p>
 
       {basesError ? (
-        <div className="flex items-center justify-between rounded border border-crimson/30 bg-crimson/5 p-2 text-xs text-crimson">
-          <span>Couldn&apos;t load bases: {basesError}</span>
-          <button type="button" onClick={onReloadBases} className="underline">
-            retry
-          </button>
+        <div className="space-y-2 rounded border border-crimson/30 bg-crimson/5 p-3 text-xs text-crimson">
+          <p>Couldn&apos;t load bases: {basesError}</p>
+          <div className="flex gap-2">
+            <a
+              href={connectUrl}
+              className="rounded-md bg-navy-900 px-3 py-1.5 font-medium text-white hover:bg-navy-800"
+            >
+              Connect Airtable
+            </a>
+            <button
+              type="button"
+              onClick={onReloadBases}
+              className="rounded-md border border-navy-200 bg-white px-3 py-1.5 font-medium text-navy-700 hover:bg-navy-50"
+            >
+              Retry
+            </button>
+          </div>
         </div>
       ) : null}
 
@@ -413,10 +430,13 @@ function ConnectStep({
         </label>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap items-center gap-3">
         <Button type="button" onClick={onSuggest} disabled={!baseId || !tableId || !!busy} variant="accent">
           {busy ?? "Ask Claude to propose mapping"}
         </Button>
+        <a href={connectUrl} className="text-xs text-muted-foreground underline">
+          Connect a different Airtable account
+        </a>
       </div>
     </div>
   );
