@@ -104,7 +104,7 @@ export function WalkbookOverviewMap({ walkbooks }: { walkbooks: WalkbookViz[] })
         if (!f) return;
         map.getCanvas().style.cursor = "pointer";
         const name = (f.properties as { name?: string })?.name ?? "";
-        const coords = (f.geometry as { coordinates: [number, number] }).coordinates;
+        const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
         if (popup) popup.remove();
         popup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false })
           .setLngLat(coords)
