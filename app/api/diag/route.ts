@@ -14,16 +14,27 @@ export async function GET() {
       has_SUPABASE_SERVICE_ROLE_KEY: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
       service_role_key_prefix: prefix(process.env.SUPABASE_SERVICE_ROLE_KEY),
       has_NEXT_PUBLIC_MAPBOX_TOKEN: Boolean(process.env.NEXT_PUBLIC_MAPBOX_TOKEN),
+      has_MAPBOX_SECRET_TOKEN: Boolean(process.env.MAPBOX_SECRET_TOKEN),
       has_AIRTABLE_API_KEY: Boolean(process.env.AIRTABLE_API_KEY),
+      has_AIRTABLE_OAUTH_CLIENT_ID: Boolean(process.env.AIRTABLE_OAUTH_CLIENT_ID),
+      has_AIRTABLE_OAUTH_CLIENT_SECRET: Boolean(process.env.AIRTABLE_OAUTH_CLIENT_SECRET),
+      has_AIRTABLE_OAUTH_REDIRECT_URI: Boolean(process.env.AIRTABLE_OAUTH_REDIRECT_URI),
+      AIRTABLE_OAUTH_REDIRECT_URI: process.env.AIRTABLE_OAUTH_REDIRECT_URI ?? null,
+      has_APP_SECRET: Boolean(process.env.APP_SECRET),
+      has_ANTHROPIC_API_KEY: Boolean(process.env.ANTHROPIC_API_KEY),
+      has_RESEND_API_KEY: Boolean(process.env.RESEND_API_KEY),
+      has_NEXT_PUBLIC_APP_URL: Boolean(process.env.NEXT_PUBLIC_APP_URL),
       node_version: process.version,
     },
     checks: [] as Array<{ name: string; ok: boolean; detail?: string }>,
+    tables: {} as Record<string, number | string>,
   };
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const checks = report.checks as Array<{ name: string; ok: boolean; detail?: string }>;
+  const tables = report.tables as Record<string, number | string>;
 
   // 1. Auth settings endpoint should always respond
   try {
@@ -80,6 +91,56 @@ export async function GET() {
     });
   } catch (err) {
     checks.push({ name: "service_role.users_count", ok: false, detail: (err as Error).message });
+  }
+
+  // 5. Table existence + row counts — one probe per required table
+  try {
+    const svc = createClient(url ?? "", serviceKey ?? "", {
+      auth: { persistSession: false },
+    });
+    const required = [
+      "clients",
+      "client_credentials",
+      "districts",
+      "users",
+      "voters",
+      "households",
+      "walkbooks",
+      "walkbook_stops",
+      "door_knocks",
+      "surveys",
+      "survey_questions",
+      "survey_answers",
+      "tags",
+      "voter_tags",
+    ];
+    for (const t of required) {
+      const { count, error } = await svc.from(t).select("*", { count: "exact", head: true });
+      tables[t] = error ? `ERROR: ${error.message}` : (count ?? 0);
+    }
+  } catch (err) {
+    checks.push({ name: "tables.probe", ok: false, detail: (err as Error).message });
+  }
+
+  // 6. Orphan public.users with no matching auth.users — symptom of bad seed data
+  try {
+    const svc = createClient(url ?? "", serviceKey ?? "", {
+      auth: { persistSession: false },
+    });
+    const { data: allUsers } = await svc.from("users").select("id, email");
+    const { data: authList } = await svc.auth.admin.listUsers({ perPage: 1000 });
+    const authIds = new Set((authList?.users ?? []).map((u) => u.id));
+    const orphans = (allUsers ?? []).filter((u) => !authIds.has(u.id as string));
+    checks.push({
+      name: "users.orphan_check",
+      ok: orphans.length === 0,
+      detail:
+        orphans.length === 0
+          ? "all public.users rows have a matching auth.users entry"
+          : `${orphans.length} orphan(s): ${orphans.map((o) => o.email).join(", ")}`,
+    });
+  } catch (err) {
+    checks.push({ name: "users.orphan_check", ok: false, detail: (err as Error).message });
   }
 
   return NextResponse.json(report, { status: 200 });
