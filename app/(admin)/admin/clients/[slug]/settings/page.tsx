@@ -5,6 +5,7 @@ import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { getAirtableCredentialStatus } from "@/lib/airtable/credentials";
 import { isOAuthEnabled } from "@/lib/airtable/oauth";
 import { AirtableCredentialsCard } from "@/components/admin/airtable-credentials-card";
+import { ClientDistricts, type DistrictRow } from "@/components/admin/client-districts";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +38,17 @@ export default async function SuperAdminClientSettings({
   if (!client) notFound();
   const row = client as ClientRow;
 
-  const airtable = await getAirtableCredentialStatus(row.id);
+  const [{ data: districtRows }, airtable] = await Promise.all([
+    supabase
+      .from("districts")
+      .select(
+        "id, slug, name, country, region, timezone, active, airtable_base_id, airtable_voters_table_id, airtable_import_status",
+      )
+      .eq("client_id", row.id)
+      .order("created_at"),
+    getAirtableCredentialStatus(row.id),
+  ]);
+  const districts = (districtRows ?? []) as DistrictRow[];
   const oauthEnabled = isOAuthEnabled();
 
   return (
@@ -76,6 +87,8 @@ export default async function SuperAdminClientSettings({
         verifiedAt={airtable.verified_at}
         connectedAt={airtable.connected_at}
       />
+
+      <ClientDistricts clientId={row.id} clientName={row.name} districts={districts} />
     </div>
   );
 }
