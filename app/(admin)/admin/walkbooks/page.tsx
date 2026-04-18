@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { loadSession } from "@/lib/auth/session";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { getActiveClient } from "@/lib/clients/active";
 import { Badge } from "@/components/ui/badge";
 import { GenerateWalkbooksButton } from "@/components/admin/generate-walkbooks-button";
@@ -12,7 +12,12 @@ export const dynamic = "force-dynamic";
 export default async function AdminWalkbooks() {
   const session = await loadSession();
   if (!session) redirect("/login");
-  const supabase = getSupabaseServerClient();
+  if (session.user.role !== "admin" && session.user.role !== "super_admin") {
+    redirect("/app");
+  }
+  // Page is server-gated to admins; service-role client avoids any RLS
+  // edge-cases with the SSR anon client and is safe here.
+  const supabase = getSupabaseServiceRoleClient();
   const activeClient = await getActiveClient();
 
   // Load every district the active client owns — walkbooks get rolled up
