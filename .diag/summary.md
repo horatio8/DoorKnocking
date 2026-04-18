@@ -1,4 +1,4 @@
-# diag @ 2026-04-18T21:49:03.106Z
+# diag @ 2026-04-18T22:25:58.777Z
 
 ## env
 - has_NEXT_PUBLIC_SUPABASE_URL: true
@@ -29,16 +29,16 @@
 - ❌ migrations.repo_vs_db — Invalid schema: supabase_migrations
 
 ## tables
-- clients: 2
-- client_credentials: 2
-- districts: 2
+- clients: 1
+- client_credentials: 1
+- districts: 1
 - users: 4
-- voters: 920
-- households: 920
-- walkbooks: 77
-- walkbook_households: 920
+- voters: 460
+- households: 460
+- walkbooks: 37
+- walkbook_households: 460
 - walkbook_assignments: 0
-- walk_time_calibration: 2
+- walk_time_calibration: 1
 - walkbook_generation_runs: 4
 - knock_events: 0
 - surveys: 0
@@ -49,8 +49,8 @@
 
 
 ## vercel
-- state: READY
-- sha: dc6351b
+- state: ERROR
+- sha: 94c06f4
 - target: production
-- created: 58266-08-03T11:38:12Z
-- url: door-knocking-ykia5gkw0-jamesflynn-2033s-projects.vercel.app
+- created: 2026-04-18T22:25:34Z
+- url: door-knocking-iiu8q2ek9-jamesflynn-2033s-projects.vercel.app

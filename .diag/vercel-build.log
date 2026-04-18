@@ -1,0 +1,38 @@
+1776551135604 [stdout] Running build in Washington, D.C., USA (East) – iad1 (Turbo Build Machine)
+1776551135605 [stdout] Build machine configuration: 30 cores, 60 GB
+1776551135696 [stdout] Cloning github.com/horatio8/DoorKnocking (Branch: claude/build-doorknock-platform-ktF3d, Commit: 94c06f4)
+1776551135903 [stdout] Cloning completed: 207.000ms
+1776551137005 [stdout] Restored build cache from previous deployment (7jmNiWM1NpYrTM6WvDRbbodUWGgN)
+1776551137172 [stdout] Running "vercel build"
+1776551137696 [stderr] Vercel CLI 51.6.1
+1776551137928 [stdout] Installing dependencies...
+1776551138975 [stdout] 
+1776551138975 [stdout] up to date in 873ms
+1776551138976 [stdout] 
+1776551138976 [stdout] 184 packages are looking for funding
+1776551138976 [stdout]   run `npm fund` for details
+1776551139001 [stdout] Detected Next.js version: 14.2.14
+1776551139005 [stdout] Running "npm run build"
+1776551139089 [stdout] 
+1776551139089 [stdout] > campaignos-doorknock@0.1.0 build
+1776551139089 [stdout] > next build
+1776551139089 [stdout] 
+1776551140042 [stdout]   ▲ Next.js 14.2.14
+1776551140042 [stdout] 
+1776551140059 [stdout]    Creating an optimized production build ...
+1776551148457 [stdout]  ✓ Compiled successfully
+1776551148457 [stdout]    Linting and checking validity of types ...
+1776551153599 [stderr] Failed to compile.
+1776551153600 [stderr] 
+1776551153600 [stderr] ./components/admin/walkbook-overview-map.tsx:107:25
+1776551153600 [stderr] Type error: Conversion of type 'Geometry' to type '{ coordinates: [number, number]; }' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+1776551153600 [stderr]   Property 'coordinates' is missing in type 'GeometryCollection<Geometry>' but required in type '{ coordinates: [number, number]; }'.
+1776551153600 [stderr] 
+1776551153600 [stderr] [0m [90m 105 |[39m         map[33m.[39mgetCanvas()[33m.[39mstyle[33m.[39mcursor [33m=[39m [32m"pointer"[39m[33m;[39m[0m
+1776551153600 [stderr] [0m [90m 106 |[39m         [36mconst[39m name [33m=[39m (f[33m.[39mproperties [36mas[39m { name[33m?[39m[33m:[39m string })[33m?[39m[33m.[39mname [33m?[39m[33m?[39m [32m""[39m[33m;[39m[0m
+1776551153600 [stderr] [0m[31m[1m>[22m[39m[90m 107 |[39m         [36mconst[39m coords [33m=[39m (f[33m.[39mgeometry [36mas[39m { coordinates[33m:[39m [number[33m,[39m number] })[33m.[39mcoordinates[33m;[39m[0m
+1776551153600 [stderr] [0m [90m     |[39m                         [31m[1m^[22m[39m[0m
+1776551153600 [stderr] [0m [90m 108 |[39m         [36mif[39m (popup) popup[33m.[39mremove()[33m;[39m[0m
+1776551153600 [stderr] [0m [90m 109 |[39m         popup [33m=[39m [36mnew[39m mapboxgl[33m.[39m[33mPopup[39m({ closeButton[33m:[39m [36mfalse[39m[33m,[39m closeOnClick[33m:[39m [36mfalse[39m })[0m
+1776551153600 [stderr] [0m [90m 110 |[39m           [33m.[39msetLngLat(coords)[0m
+1776551153647 [stderr] Error: Command "npm run build" exited with 1
