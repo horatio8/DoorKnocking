@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { runImport } from "@/lib/airtable/import";
+import { resolveAirtableToken } from "@/lib/airtable/credentials";
 
 interface Body {
   districtId: string;
@@ -23,7 +24,7 @@ export async function POST(req: Request) {
   const supabase = getSupabaseServiceRoleClient();
   const { data: district, error: dErr } = await supabase
     .from("districts")
-    .select("airtable_base_id, airtable_voters_table_id, airtable_field_mapping")
+    .select("airtable_base_id, airtable_voters_table_id, airtable_field_mapping, client_id")
     .eq("id", districtId)
     .maybeSingle();
   if (dErr || !district) {
@@ -33,6 +34,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "district missing airtable connection or mapping" }, { status: 400 });
   }
 
+  const creds = await resolveAirtableToken(district.client_id);
+  if (!creds) {
+    return NextResponse.json({ error: "No Airtable token configured for this client." }, { status: 412 });
+  }
+
   try {
     const summary = await runImport({
       supabase,
@@ -40,6 +46,7 @@ export async function POST(req: Request) {
       baseId: district.airtable_base_id,
       tableId: district.airtable_voters_table_id,
       mapping: district.airtable_field_mapping,
+      airtableToken: creds.token,
       limit,
     });
     return NextResponse.json({ ok: true, summary });

@@ -10,6 +10,7 @@ import {
   ListTodo,
   Map,
   MapPin,
+  Settings as SettingsIcon,
   Tag as TagIcon,
   Users,
 } from "lucide-react";
@@ -30,6 +31,7 @@ const NAV = [
   { href: "/admin/conflicts", label: "Conflicts", icon: Flag },
   { href: "/admin/households", label: "Households", icon: Home },
   { href: "/admin/export", label: "Export", icon: Download },
+  { href: "/admin/settings", label: "Settings", icon: SettingsIcon },
 ];
 
 const SUPER_NAV = [

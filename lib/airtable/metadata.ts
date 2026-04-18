@@ -1,8 +1,6 @@
 // Airtable Metadata API — read-only schema introspection. Requires the PAT to
 // have the `schema.bases:read` scope on the target base.
 
-import { airtableEnv } from "@/lib/env";
-
 const META_BASE_URL = "https://api.airtable.com/v0/meta";
 
 export interface AirtableField {
@@ -26,11 +24,10 @@ export interface AirtableBase {
   permissionLevel?: string;
 }
 
-async function fetchMeta<T>(path: string): Promise<T> {
-  const env = airtableEnv();
+async function fetchMeta<T>(token: string, path: string): Promise<T> {
   const res = await fetch(`${META_BASE_URL}${path}`, {
     headers: {
-      Authorization: `Bearer ${env.apiKey}`,
+      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
     cache: "no-store",
@@ -43,13 +40,24 @@ async function fetchMeta<T>(path: string): Promise<T> {
 }
 
 // List all bases the PAT can see. Useful for the picker UI.
-export async function listBases(): Promise<AirtableBase[]> {
-  const body = await fetchMeta<{ bases: AirtableBase[] }>("/bases");
+export async function listBases(token: string): Promise<AirtableBase[]> {
+  const body = await fetchMeta<{ bases: AirtableBase[] }>(token, "/bases");
   return body.bases;
 }
 
 // List tables + fields for a base.
-export async function listTables(baseId: string): Promise<AirtableTable[]> {
-  const body = await fetchMeta<{ tables: AirtableTable[] }>(`/bases/${baseId}/tables`);
+export async function listTables(token: string, baseId: string): Promise<AirtableTable[]> {
+  const body = await fetchMeta<{ tables: AirtableTable[] }>(token, `/bases/${baseId}/tables`);
   return body.tables;
+}
+
+// Whoami-style check — Airtable doesn't have a /whoami, but /meta/bases is a
+// cheap privileged call that validates the token + scopes in one go.
+export async function verifyToken(token: string): Promise<{ ok: true; base_count: number } | { ok: false; error: string }> {
+  try {
+    const body = await fetchMeta<{ bases: AirtableBase[] }>(token, "/bases");
+    return { ok: true, base_count: body.bases.length };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
 }

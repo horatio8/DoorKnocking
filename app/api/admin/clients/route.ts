@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { saveAirtableToken } from "@/lib/airtable/credentials";
+import { verifyToken } from "@/lib/airtable/metadata";
 
 export async function POST(req: Request) {
   const session = await loadSession();
@@ -22,6 +24,8 @@ export async function POST(req: Request) {
     district_region,
     airtable_base_id,
     airtable_voters_table_id,
+    airtable_token,
+    airtable_workspace_id,
     timezone,
   } = body as Record<string, string | undefined>;
 
@@ -30,6 +34,24 @@ export async function POST(req: Request) {
   }
   if (!/^[a-z0-9-]+$/.test(slug)) {
     return NextResponse.json({ error: "slug must be lowercase letters, numbers, and hyphens" }, { status: 400 });
+  }
+
+  // Verify the Airtable token up-front (if provided) so a bad credential
+  // doesn't land in the DB.
+  if (airtable_token) {
+    if (!airtable_token.startsWith("pat")) {
+      return NextResponse.json(
+        { error: "Airtable tokens start with 'pat…'." },
+        { status: 400 },
+      );
+    }
+    const check = await verifyToken(airtable_token);
+    if (!check.ok) {
+      return NextResponse.json(
+        { error: `Airtable rejected the token: ${check.error}` },
+        { status: 400 },
+      );
+    }
   }
 
   const supabase = getSupabaseServiceRoleClient();
@@ -67,9 +89,25 @@ export async function POST(req: Request) {
     });
 
   if (districtError) {
-    // Roll back the client so the admin can retry cleanly.
     await supabase.from("clients").delete().eq("id", client.id);
     return NextResponse.json({ error: districtError.message }, { status: 500 });
+  }
+
+  if (airtable_token) {
+    try {
+      await saveAirtableToken({
+        clientId: client.id,
+        token: airtable_token,
+        workspaceId: airtable_workspace_id || null,
+        updatedBy: session.user.id,
+        verifiedAt: new Date(),
+      });
+    } catch (err) {
+      return NextResponse.json(
+        { error: `Client created but token save failed: ${(err as Error).message}` },
+        { status: 500 },
+      );
+    }
   }
 
   return NextResponse.json({

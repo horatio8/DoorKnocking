@@ -23,6 +23,7 @@ export interface ImportArgs {
   baseId: string;
   tableId: string;
   mapping: FieldMapping;
+  airtableToken: string;
   limit?: number;
   patchAirtableLatLng?: boolean;
 }
@@ -110,11 +111,12 @@ export async function runImport({
   baseId,
   tableId,
   mapping,
+  airtableToken,
   limit,
   patchAirtableLatLng = true,
 }: ImportArgs): Promise<ImportSummary> {
   const started = Date.now();
-  const airtable = new AirtableClient();
+  const airtable = new AirtableClient(airtableToken);
 
   // Mark district as importing
   await supabase

@@ -1,7 +1,7 @@
 // Minimal Airtable REST client — we intentionally avoid the `airtable` npm
 // package so this works the same in Next.js, scripts, and Edge Functions.
 
-import { serverEnv } from "@/lib/env";
+import { airtableEnv } from "@/lib/env";
 
 const BASE_URL = "https://api.airtable.com/v0";
 const REQUESTS_PER_SECOND = 4; // leave headroom under the 5 r/s limit
@@ -11,7 +11,7 @@ export class AirtableClient {
   private lastRequestAt = 0;
 
   constructor(apiKey?: string) {
-    this.apiKey = apiKey ?? serverEnv().airtableApiKey;
+    this.apiKey = apiKey ?? airtableEnv().apiKey;
   }
 
   private async throttle() {

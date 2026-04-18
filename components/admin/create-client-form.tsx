@@ -18,6 +18,8 @@ interface FormState {
   district_country: string;
   airtable_base_id: string;
   airtable_voters_table_id: string;
+  airtable_token: string;
+  airtable_workspace_id: string;
   timezone: string;
 }
 
@@ -34,6 +36,8 @@ const INITIAL: FormState = {
   district_country: "US",
   airtable_base_id: "",
   airtable_voters_table_id: "",
+  airtable_token: "",
+  airtable_workspace_id: "",
   timezone: "America/New_York",
 };
 
@@ -99,6 +103,22 @@ export function CreateClientForm() {
       </div>
 
       <h3 className="mt-2 text-xs font-semibold uppercase tracking-widest text-navy-700">
+        Airtable credentials (optional — can be added later from Settings)
+      </h3>
+      <div className="grid gap-2 md:grid-cols-2">
+        <Input placeholder="Airtable PAT (patXXXX.XXXXX…)" type="password" autoComplete="off"
+          value={form.airtable_token} onChange={(e) => setForm({ ...form, airtable_token: e.target.value })} />
+        <Input placeholder="Airtable workspace id (optional)"
+          value={form.airtable_workspace_id} onChange={(e) => setForm({ ...form, airtable_workspace_id: e.target.value })} />
+      </div>
+      <p className="-mt-1 text-xs text-muted-foreground">
+        Token will be verified against Airtable before the client is created. Needs scopes:
+        <code className="mx-1">data.records:read</code>
+        <code className="mx-1">data.records:write</code>
+        <code className="mx-1">schema.bases:read</code>
+      </p>
+
+      <h3 className="mt-2 text-xs font-semibold uppercase tracking-widest text-navy-700">
         First district
       </h3>
       <div className="grid gap-2 md:grid-cols-2">
@@ -110,9 +130,9 @@ export function CreateClientForm() {
           value={form.district_country} onChange={(e) => setForm({ ...form, district_country: e.target.value })} />
         <Input required placeholder="Region (state/electorate)"
           value={form.district_region} onChange={(e) => setForm({ ...form, district_region: e.target.value })} />
-        <Input required placeholder="Airtable base id"
+        <Input placeholder="Airtable base id (app…)"
           value={form.airtable_base_id} onChange={(e) => setForm({ ...form, airtable_base_id: e.target.value })} />
-        <Input required placeholder="Airtable voters table id"
+        <Input placeholder="Airtable voters table id (tbl…)"
           value={form.airtable_voters_table_id} onChange={(e) => setForm({ ...form, airtable_voters_table_id: e.target.value })} />
         <Input placeholder="Timezone"
           value={form.timezone} onChange={(e) => setForm({ ...form, timezone: e.target.value })} />
