@@ -23,6 +23,14 @@ interface FormState {
   timezone: string;
 }
 
+function normalizeSlug(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
 const INITIAL: FormState = {
   slug: "",
   name: "",
@@ -80,8 +88,12 @@ export function CreateClientForm() {
       <h2 className="text-sm font-semibold uppercase tracking-widest text-navy-700">New client</h2>
 
       <div className="grid gap-2 md:grid-cols-2">
-        <Input required placeholder="Slug (subdomain): e.g. macarthur"
-          value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })} />
+        <Input
+          required
+          placeholder="slug (e.g. macarthur) — lowercase only"
+          value={form.slug}
+          onChange={(e) => setForm({ ...form, slug: normalizeSlug(e.target.value) })}
+        />
         <Input required placeholder="Client name"
           value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         <Input placeholder="Contact email"
@@ -122,8 +134,12 @@ export function CreateClientForm() {
         First district
       </h3>
       <div className="grid gap-2 md:grid-cols-2">
-        <Input required placeholder="District slug (e.g. sc-hd-115)"
-          value={form.district_slug} onChange={(e) => setForm({ ...form, district_slug: e.target.value })} />
+        <Input
+          required
+          placeholder="District slug (must be globally unique)"
+          value={form.district_slug}
+          onChange={(e) => setForm({ ...form, district_slug: normalizeSlug(e.target.value) })}
+        />
         <Input required placeholder="District name"
           value={form.district_name} onChange={(e) => setForm({ ...form, district_name: e.target.value })} />
         <Input required placeholder="Country (US, AU)"
