@@ -56,7 +56,7 @@ jobs:
               sha: (.deployments[0].meta.githubCommitSha // "" | .[0:7]),
               url: .deployments[0].url,
               uid: .deployments[0].uid,
-              created_at: (.deployments[0].created | todate),
+              created_at: ((.deployments[0].created / 1000) | todate),
               target: .deployments[0].target
             }' > .diag/vercel.json
 
