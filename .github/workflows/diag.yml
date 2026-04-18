@@ -2,8 +2,6 @@ name: diag
 
 on:
   schedule:
-    # Every 30 minutes. Shift off the hour so we don't collide with Vercel
-    # edge-caching / other scheduled jobs.
     - cron: "7,37 * * * *"
   workflow_dispatch: {}
 
@@ -16,10 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      issues: write
     steps:
       - uses: actions/checkout@v4
         with:
-          # persist-credentials so the final `git push` uses GITHUB_TOKEN.
           persist-credentials: true
 
       - name: Fetch /api/diag
@@ -27,18 +25,37 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .diag
-          # -f fails on non-2xx, --max-time caps wall time, -sS is silent+show-errors.
           curl -fsS --max-time 30 \
             -H "Accept: application/json" \
             https://door-knocking.vercel.app/api/diag \
             | jq '.' > .diag/latest.json
+
+      - name: Fetch Vercel deploy status
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${VERCEL_TOKEN:-}" ] || [ -z "${VERCEL_PROJECT_ID:-}" ]; then
+            echo '{"skipped":"no VERCEL_TOKEN or VERCEL_PROJECT_ID"}' > .diag/vercel.json
+            exit 0
+          fi
+          curl -fsS --max-time 20 \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v6/deployments?projectId=$VERCEL_PROJECT_ID&limit=1" \
+            | jq '{
+                state: .deployments[0].state,
+                sha: (.deployments[0].meta.githubCommitSha // "" | .[0:7]),
+                url: .deployments[0].url,
+                created_at: (.deployments[0].created | todate),
+                target: .deployments[0].target
+              }' > .diag/vercel.json
 
       - name: Summarize
         id: summarize
         run: |
           set -euo pipefail
           jq -r '
-            def yn: if . then "✅" else "❌" end;
             "# diag @ \(.at)",
             "",
             "## env",
@@ -48,14 +65,61 @@ jobs:
             (.checks[] | "- \(if .ok then "✅" else "❌" end) \(.name) — \(.detail // "")"),
             "",
             "## tables",
-            (.tables | to_entries[] | "- \(.key): \(.value)")
+            (.tables | to_entries[] | "- \(.key): \(.value)"),
+            "",
+            (if .migrations then
+              "## migrations",
+              "- expected: \(.migrations.expected_count)",
+              "- applied: \(.migrations.applied_count)",
+              (if (.migrations.missing | length) > 0 then "- missing: \(.migrations.missing | join(\", \"))" else "- missing: none" end),
+              (if (.migrations.extras | length) > 0 then "- extras: \(.migrations.extras | join(\", \"))" else empty end)
+             else empty end)
           ' .diag/latest.json > .diag/summary.md
+
+          if [ -f .diag/vercel.json ]; then
+            echo "" >> .diag/summary.md
+            jq -r '
+              if .skipped then
+                "## vercel", "- " + .skipped
+              else
+                "## vercel",
+                "- state: \(.state // "?")",
+                "- sha: \(.sha // "?")",
+                "- target: \(.target // "?")",
+                "- created: \(.created_at // "?")",
+                "- url: \(.url // "?")"
+              end
+            ' .diag/vercel.json >> .diag/summary.md
+          fi
+
+      - name: Compute check status
+        id: status
+        run: |
+          set -euo pipefail
+          failed=$(jq -r '.checks | map(select(.ok == false)) | length' .diag/latest.json)
+          : > .diag/failures.md
+          if [ "$failed" -gt 0 ]; then
+            jq -r '.checks | map(select(.ok == false)) | .[] | "- **\(.name)** — \(.detail // "")"' \
+              .diag/latest.json >> .diag/failures.md
+          fi
+          if [ -f .diag/vercel.json ]; then
+            vstate=$(jq -r '.state // empty' .diag/vercel.json)
+            if [ "$vstate" = "ERROR" ] || [ "$vstate" = "CANCELED" ]; then
+              echo "- **vercel.latest_deploy** — state=$vstate" >> .diag/failures.md
+              failed=$((failed + 1))
+            fi
+          fi
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+          if [ "$failed" -eq 0 ]; then
+            rm -f .diag/failures.md
+          fi
 
       - name: Commit if changed
         run: |
           set -euo pipefail
           git config user.email "diag-bot@users.noreply.github.com"
           git config user.name  "diag-bot"
+          git add .diag/latest.json .diag/summary.md .diag/vercel.json 2>/dev/null || true
           git add .diag/latest.json .diag/summary.md
           if git diff --cached --quiet; then
             echo "no diag changes"
@@ -63,3 +127,43 @@ jobs:
           fi
           git commit -m "diag snapshot [$(date -u +%Y-%m-%dT%H:%MZ)]"
           git push
+
+      - name: Open or update red-status issue
+        if: steps.status.outputs.failed != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FAILED: ${{ steps.status.outputs.failed }}
+        run: |
+          set -euo pipefail
+          title="diag: infra red"
+          body=$(cat <<EOF
+          **$FAILED check(s) failing** as of $(date -u +%Y-%m-%dT%H:%MZ)
+
+          $(cat .diag/failures.md)
+
+          Full snapshot: [\`.diag/summary.md\`](../blob/HEAD/.diag/summary.md).
+
+          This issue auto-closes on the next green diag run.
+          EOF
+          )
+          existing=$(gh issue list --state open --search "$title in:title" --json number,title \
+            --jq ".[] | select(.title == \"$title\") | .number" | head -n 1)
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body" --label diag 2>/dev/null \
+              || gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Close red-status issue when green
+        if: steps.status.outputs.failed == '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          title="diag: infra red"
+          existing=$(gh issue list --state open --search "$title in:title" --json number,title \
+            --jq ".[] | select(.title == \"$title\") | .number" | head -n 1)
+          if [ -n "$existing" ]; then
+            gh issue close "$existing" --comment "All checks green as of $(date -u +%Y-%m-%dT%H:%MZ)."
+          fi

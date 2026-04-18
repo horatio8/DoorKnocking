@@ -1,6 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Include the migrations directory in the serverless bundle so /api/diag
+  // can enumerate what the repo expects vs. what the DB has applied.
+  outputFileTracingIncludes: {
+    "/api/diag": ["./supabase/migrations/**/*.sql"],
+  },
   experimental: {
     serverActions: {
       bodySizeLimit: "2mb",

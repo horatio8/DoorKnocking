@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { readdirSync } from "node:fs";
+import path from "node:path";
 
 // /api/diag — runs a handful of server-side checks and returns JSON.
 // Public, but only exposes presence/connectivity info, not values.
@@ -148,7 +150,57 @@ export async function GET() {
     checks.push({ name: "users.orphan_check", ok: false, detail: (err as Error).message });
   }
 
+  // 7. Migrations — cross-check repo files against supabase_migrations.
+  try {
+    const expected = listExpectedMigrations();
+    const svc = createClient(url ?? "", serviceKey ?? "", {
+      auth: { persistSession: false },
+    });
+    const { data: appliedRows, error } = await svc
+      .schema("supabase_migrations")
+      .from("schema_migrations")
+      .select("version");
+    if (error) throw error;
+    const applied = new Set(((appliedRows ?? []) as Array<{ version: string }>).map((r) => r.version));
+    const missing = expected.filter((v) => !applied.has(v));
+    const extras = Array.from(applied).filter((v) => !expected.includes(v));
+    (report as Record<string, unknown>).migrations = {
+      expected_count: expected.length,
+      applied_count: applied.size,
+      missing,
+      extras,
+    };
+    checks.push({
+      name: "migrations.repo_vs_db",
+      ok: missing.length === 0,
+      detail:
+        missing.length === 0
+          ? `${applied.size}/${expected.length} applied, repo fully in sync`
+          : `missing: ${missing.join(", ")}`,
+    });
+  } catch (err) {
+    checks.push({ name: "migrations.repo_vs_db", ok: false, detail: (err as Error).message });
+  }
+
+  // Note: Vercel deploy status is queried directly by the GitHub Action
+  // workflow using its own VERCEL_TOKEN secret — no need to ship that
+  // token into the Vercel runtime. The workflow merges the result into
+  // .diag/summary.md after /api/diag returns.
+
   return NextResponse.json(report, { status: 200 });
+}
+
+function listExpectedMigrations(): string[] {
+  try {
+    const dir = path.join(process.cwd(), "supabase", "migrations");
+    return readdirSync(dir)
+      .filter((f) => f.endsWith(".sql"))
+      .map((f) => f.replace(/\.sql$/, "").split("_")[0])
+      .filter((v) => /^\d+$/.test(v))
+      .sort();
+  } catch {
+    return [];
+  }
 }
 
 function safeHost(url?: string): string | null {
