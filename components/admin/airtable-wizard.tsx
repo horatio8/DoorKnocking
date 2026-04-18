@@ -572,6 +572,15 @@ function PreviewStep({
   onImport(): void;
   busy: string | null;
 }) {
+  const typed = rows as Array<{
+    airtable_id: string;
+    voter: Record<string, unknown> | null;
+    household: Record<string, unknown> | null;
+  }>;
+
+  const voterKeys = uniqueKeys(typed.map((r) => r.voter));
+  const householdKeys = uniqueKeys(typed.map((r) => r.household));
+
   return (
     <div className="space-y-3 rounded-lg border border-border bg-white p-4">
       <h2 className="font-medium text-navy-900">Preview</h2>
@@ -579,9 +588,84 @@ function PreviewStep({
         Below is what {rows.length} sample Airtable rows look like after mapping. Confirm the data
         looks right, then run a full import.
       </p>
-      <pre className="max-h-[420px] overflow-auto rounded bg-navy-900 p-3 text-[11px] text-navy-50">
-        {JSON.stringify(rows, null, 2)}
-      </pre>
+
+      <div className="max-h-[420px] overflow-auto rounded border border-border">
+        <table className="w-full min-w-max border-collapse text-xs">
+          <thead className="sticky top-0 z-10 bg-navy-50 text-left text-navy-700">
+            <tr>
+              <th rowSpan={2} className="sticky left-0 z-20 bg-navy-50 px-2 py-1">#</th>
+              <th rowSpan={2} className="bg-navy-50 px-2 py-1">airtable_id</th>
+              {voterKeys.length > 0 ? (
+                <th
+                  colSpan={voterKeys.length}
+                  className="border-l border-navy-200 bg-navy-100 px-2 py-1 text-center font-semibold uppercase tracking-widest text-[10px]"
+                >
+                  voter
+                </th>
+              ) : null}
+              {householdKeys.length > 0 ? (
+                <th
+                  colSpan={householdKeys.length}
+                  className="border-l border-navy-200 bg-navy-100 px-2 py-1 text-center font-semibold uppercase tracking-widest text-[10px]"
+                >
+                  household
+                </th>
+              ) : null}
+            </tr>
+            <tr className="text-[10px] font-medium uppercase tracking-widest text-navy-500">
+              {voterKeys.map((k, i) => (
+                <th
+                  key={`v-${k}`}
+                  className={`${i === 0 ? "border-l border-navy-200" : ""} bg-navy-50 px-2 py-1 font-medium`}
+                >
+                  {k}
+                </th>
+              ))}
+              {householdKeys.map((k, i) => (
+                <th
+                  key={`h-${k}`}
+                  className={`${i === 0 ? "border-l border-navy-200" : ""} bg-navy-50 px-2 py-1 font-medium`}
+                >
+                  {k}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {typed.map((r, i) => (
+              <tr key={r.airtable_id ?? i} className="border-t border-border odd:bg-white even:bg-navy-50/30">
+                <td className="sticky left-0 bg-inherit px-2 py-1 text-muted-foreground">{i + 1}</td>
+                <td className="px-2 py-1 font-mono text-[10px] text-muted-foreground">{r.airtable_id}</td>
+                {voterKeys.map((k, j) => {
+                  const display = fmtCell(r.voter?.[k]);
+                  return (
+                    <td
+                      key={`v-${k}`}
+                      className={`${j === 0 ? "border-l border-border" : ""} max-w-[220px] truncate px-2 py-1`}
+                      title={display}
+                    >
+                      {display}
+                    </td>
+                  );
+                })}
+                {householdKeys.map((k, j) => {
+                  const display = fmtCell(r.household?.[k]);
+                  return (
+                    <td
+                      key={`h-${k}`}
+                      className={`${j === 0 ? "border-l border-border" : ""} max-w-[220px] truncate px-2 py-1`}
+                      title={display}
+                    >
+                      {display}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
       <div className="flex flex-wrap gap-2">
         <Button type="button" variant="outline" onClick={onBack}>Back to mapping</Button>
         <Button type="button" variant="outline" onClick={onSave} disabled={!!busy}>
@@ -593,4 +677,33 @@ function PreviewStep({
       </div>
     </div>
   );
+}
+
+function uniqueKeys(objs: Array<Record<string, unknown> | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const order: string[] = [];
+  for (const obj of objs) {
+    if (!obj) continue;
+    for (const key of Object.keys(obj)) {
+      if (!seen.has(key)) {
+        seen.add(key);
+        order.push(key);
+      }
+    }
+  }
+  return order;
+}
+
+function fmtCell(v: unknown): string {
+  if (v === null || v === undefined) return "—";
+  if (typeof v === "boolean") return v ? "yes" : "no";
+  if (Array.isArray(v)) return v.map((x) => (x == null ? "" : String(x))).join(", ");
+  if (typeof v === "object") {
+    try {
+      return JSON.stringify(v);
+    } catch {
+      return String(v);
+    }
+  }
+  return String(v);
 }
