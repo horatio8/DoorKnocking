@@ -5,6 +5,7 @@ import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { getAirtableCredentialStatus } from "@/lib/airtable/credentials";
 import { isOAuthEnabled } from "@/lib/airtable/oauth";
 import { AirtableCredentialsCard } from "@/components/admin/airtable-credentials-card";
+import { ClientDetailsCard, type ClientDetails } from "@/components/admin/client-details-card";
 import { ClientDistricts, type DistrictRow } from "@/components/admin/client-districts";
 
 export const dynamic = "force-dynamic";
@@ -76,6 +77,8 @@ export default async function SuperAdminClientSettings({
           {searchParams.airtable_error}
         </div>
       ) : null}
+
+      <ClientDetailsCard client={row as ClientDetails} />
 
       <AirtableCredentialsCard
         clientId={row.id}
