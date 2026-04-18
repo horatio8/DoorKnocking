@@ -41,7 +41,7 @@ export function SetPasswordForm() {
       }
     }
     check();
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((_event: string, sess) => {
       if (sess) {
         setSessionReady("yes");
         setEmail(sess.user.email ?? null);
