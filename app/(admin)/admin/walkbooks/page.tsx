@@ -39,16 +39,57 @@ export default async function AdminWalkbooks() {
   const districtIds = districts.map((d) => d.id);
   const districtNameById = new Map(districts.map((d) => [d.id, d.name]));
 
-  const { data: walkbooks } =
-    districtIds.length > 0
-      ? await supabase
-          .from("walkbooks")
-          .select("*, walkbook_assignments(user_id, users(full_name), unassigned_at)")
-          .in("district_id", districtIds)
-          .order("created_at", { ascending: false })
-      : { data: [] as unknown as [] };
+  // Walkbooks first, bare. The previous join (walkbook_assignments + nested
+  // users) was returning zero rows whenever there was no matching assignment
+  // — a quirk of how PostgREST handles deeply-nested optional joins under
+  // some RLS conditions. Splitting into two queries is bulletproof.
+  let walkbookRows: Array<{
+    id: string;
+    name: string;
+    district_id: string;
+    household_count: number;
+    status: string;
+    kind: string;
+    estimated_duration_minutes: number | null;
+    target_duration_minutes: number | null;
+    created_at: string;
+  }> = [];
+  let walkbooksError: string | null = null;
+  if (districtIds.length > 0) {
+    const { data, error } = await supabase
+      .from("walkbooks")
+      .select(
+        "id, name, district_id, household_count, status, kind, estimated_duration_minutes, target_duration_minutes, created_at",
+      )
+      .in("district_id", districtIds)
+      .order("created_at", { ascending: false });
+    if (error) {
+      walkbooksError = error.message;
+      console.error("/admin/walkbooks: walkbooks query failed", error);
+    } else {
+      walkbookRows = (data ?? []) as typeof walkbookRows;
+    }
+  }
 
-  const wbIds = ((walkbooks ?? []) as Array<{ id: string }>).map((w) => w.id);
+  // Active assignments — separate query, joined in JS.
+  const wbIds = walkbookRows.map((w) => w.id);
+  const assignmentByWalkbook = new Map<string, { full_name: string | null }>();
+  if (wbIds.length > 0) {
+    const { data: assigns } = await supabase
+      .from("walkbook_assignments")
+      .select("walkbook_id, user_id, users(full_name)")
+      .in("walkbook_id", wbIds)
+      .is("unassigned_at", null);
+    for (const a of (assigns ?? []) as Array<{
+      walkbook_id: string;
+      user_id: string;
+      users: { full_name: string | null } | Array<{ full_name: string | null }> | null;
+    }>) {
+      const u = Array.isArray(a.users) ? a.users[0] : a.users;
+      assignmentByWalkbook.set(a.walkbook_id, { full_name: u?.full_name ?? null });
+    }
+  }
+
   const knocksByWalkbook = new Map<string, Array<{ household_id: string; duration_seconds: number | null }>>();
   if (wbIds.length > 0) {
     const { data: events } = await supabase
@@ -75,22 +116,7 @@ export default async function AdminWalkbooks() {
     return { doorsPerHour, completion, knocks: events.length, doorsKnocked: distinctHouseholds.size };
   }
 
-  const list = (walkbooks ?? []) as unknown as Array<{
-    id: string;
-    name: string;
-    district_id: string;
-    household_count: number;
-    status: string;
-    kind: string;
-    estimated_duration_minutes: number | null;
-    target_duration_minutes: number | null;
-    created_at: string;
-    walkbook_assignments?: Array<{
-      unassigned_at: string | null;
-      users?: { full_name?: string } | Array<{ full_name?: string }> | null;
-    }>;
-  }>;
-
+  const list = walkbookRows;
   const total = list.length;
   const totalDoors = list.reduce((sum, w) => sum + (w.household_count ?? 0), 0);
   const totalEstimatedMinutes = list.reduce(
@@ -136,14 +162,16 @@ export default async function AdminWalkbooks() {
             Use <strong>Generate walkbooks</strong> in the top-right to cluster your households
             into walkable routes.
           </p>
+          <p className="mt-4 inline-block rounded-full border border-border bg-navy-50/40 px-3 py-1 text-[11px] text-muted-foreground">
+            scope: client = <strong>{activeClient?.name ?? "(none)"}</strong> ·{" "}
+            districts queried = <strong>{districtIds.length}</strong>
+            {walkbooksError ? <> · <span className="text-crimson">error: {walkbooksError}</span></> : null}
+          </p>
         </div>
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {list.map((wb) => {
-            const assignment = wb.walkbook_assignments?.find((a) => a.unassigned_at === null);
-            const assignedUser = Array.isArray(assignment?.users)
-              ? assignment?.users[0]
-              : assignment?.users;
+            const assignedUser = assignmentByWalkbook.get(wb.id) ?? null;
             const m = metrics(wb.id, wb.household_count);
             const pct = Math.round(m.completion * 100);
             const est = wb.estimated_duration_minutes ?? wb.target_duration_minutes ?? null;
