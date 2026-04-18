@@ -30,7 +30,7 @@ export function AirtableCredentialsCard(props: Props) {
   const connected = props.hasOAuth || props.hasToken;
 
   function connectOAuth() {
-    const returnTo = "/admin/settings";
+    const returnTo = typeof window !== "undefined" ? window.location.pathname : "/admin/settings";
     window.location.href = `/api/airtable/oauth/start?clientId=${encodeURIComponent(props.clientId)}&returnTo=${encodeURIComponent(returnTo)}`;
   }
 
@@ -41,7 +41,7 @@ export function AirtableCredentialsCard(props: Props) {
     const res = await fetch("/api/admin/settings/airtable", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: token.trim() }),
+      body: JSON.stringify({ token: token.trim(), clientId: props.clientId }),
     });
     setBusy(null);
     const body = await res.json().catch(() => ({}));
@@ -59,7 +59,10 @@ export function AirtableCredentialsCard(props: Props) {
     if (!confirm(`Disconnect Airtable for ${props.clientName}? You can reconnect any time.`)) return;
     setBusy("Disconnecting…");
     setError(null);
-    const res = await fetch("/api/admin/settings/airtable", { method: "DELETE" });
+    const res = await fetch(
+      `/api/admin/settings/airtable?clientId=${encodeURIComponent(props.clientId)}`,
+      { method: "DELETE" },
+    );
     setBusy(null);
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));

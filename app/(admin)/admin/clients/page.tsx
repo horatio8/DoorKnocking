@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
@@ -45,6 +46,7 @@ export default async function AdminClients({
               <th className="px-3 py-2 text-left">Active</th>
               <th className="px-3 py-2 text-left">Created</th>
               <th className="px-3 py-2 text-left">URL</th>
+              <th className="px-3 py-2 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -68,6 +70,14 @@ export default async function AdminClients({
                 <td className="px-3 py-2 text-muted-foreground">{formatRelative(c.created_at)}</td>
                 <td className="px-3 py-2 text-xs text-muted-foreground">
                   {c.slug}.campaignos.com
+                </td>
+                <td className="px-3 py-2 text-right">
+                  <Link
+                    href={`/admin/clients/${c.slug}/settings`}
+                    className="rounded-md border border-navy-200 bg-white px-2 py-1 text-xs font-medium text-navy-700 hover:bg-navy-50"
+                  >
+                    Settings
+                  </Link>
                 </td>
               </tr>
             ))}
