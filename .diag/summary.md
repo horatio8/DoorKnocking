@@ -1,4 +1,4 @@
-# diag @ 2026-04-18T19:07:59.412Z
+# diag @ 2026-04-18T20:52:48.847Z
 
 ## env
 - has_NEXT_PUBLIC_SUPABASE_URL: true
@@ -18,27 +18,30 @@
 - has_ANTHROPIC_API_KEY: true
 - has_RESEND_API_KEY: true
 - has_NEXT_PUBLIC_APP_URL: true
-- node_version: v24.14.1
+- node_version: v24.13.0
 
 ## checks
 - ✅ auth.settings — status=200
 - ✅ anon.districts_select — 
 - ✅ service_role.list_users — count=1
-- ✅ service_role.users_count — count=3
+- ✅ service_role.users_count — count=4
 - ✅ users.orphan_check — all public.users rows have a matching auth.users entry
 
 ## tables
 - clients: 2
 - client_credentials: 2
 - districts: 2
-- users: 3
+- users: 4
 - voters: 920
 - households: 920
-- walkbooks: 0
-- walkbook_stops: 0
-- door_knocks: 0
+- walkbooks: 109
+- walkbook_households: 456
+- walkbook_assignments: 0
+- walk_time_calibration: 1
+- walkbook_generation_runs: 1
+- knock_events: 0
 - surveys: 0
 - survey_questions: 0
-- survey_answers: 0
+- survey_responses: 0
 - tags: 0
 - voter_tags: 0
