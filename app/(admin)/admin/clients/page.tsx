@@ -7,7 +7,11 @@ import { formatRelative } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminClients() {
+export default async function AdminClients({
+  searchParams,
+}: {
+  searchParams?: { new?: string };
+}) {
   const session = await loadSession();
   if (!session) redirect("/login");
   if (session.user.role !== "super_admin") redirect("/admin");
@@ -27,7 +31,7 @@ export default async function AdminClients() {
             Each client gets their own subdomain. Districts, users, and data all roll up to a client.
           </p>
         </div>
-        <CreateClientForm />
+        <CreateClientForm initialOpen={searchParams?.new === "1"} />
       </div>
 
       <div className="overflow-hidden rounded-lg border border-border bg-white">

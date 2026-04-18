@@ -99,7 +99,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <div className="flex items-center gap-2">
             {session.user.role === "super_admin" && (
               <Link
-                href="/admin/clients"
+                href="/admin/clients?new=1"
                 className="rounded-md bg-navy-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-navy-800"
               >
                 <Sparkles className="mr-1 inline h-3 w-3" /> Start Client Setup

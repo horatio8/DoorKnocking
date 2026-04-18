@@ -49,9 +49,9 @@ const INITIAL: FormState = {
   timezone: "America/New_York",
 };
 
-export function CreateClientForm() {
+export function CreateClientForm({ initialOpen = false }: { initialOpen?: boolean } = {}) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
   const [form, setForm] = useState(INITIAL);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
