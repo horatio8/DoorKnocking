@@ -1,6 +1,10 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Sparkles } from "lucide-react";
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { getSetupStatus } from "@/lib/setup/status";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatRelative } from "@/lib/utils";
 
@@ -12,10 +16,39 @@ export default async function AdminOverview() {
   const supabase = getSupabaseServerClient();
   const districtId = session.district?.id;
 
+  const setup = await getSetupStatus(session.user);
+  const setupBanner = setup.allComplete ? null : (
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+      <Sparkles className="h-4 w-4" />
+      <div className="flex-1">
+        <strong>Finish setup.</strong>{" "}
+        {setup.steps.filter((s) => !s.complete).length} step
+        {setup.steps.filter((s) => !s.complete).length === 1 ? "" : "s"} still open —{" "}
+        next up: <em>{setup.steps.find((s) => !s.complete)?.label}</em>.
+      </div>
+      <Button asChild variant="accent" size="sm">
+        <Link href="/admin/setup">Resume wizard</Link>
+      </Button>
+    </div>
+  );
+
   if (!districtId) {
     return (
-      <div className="rounded-lg border border-dashed border-border bg-white p-6 text-center text-sm text-muted-foreground">
-        Select or create a district to view the dashboard.
+      <div className="space-y-4">
+        {setupBanner}
+        <div className="rounded-lg border border-dashed border-border bg-white p-6 text-center text-sm text-muted-foreground">
+          Select or create a district to view the dashboard.
+          {!setup.allComplete ? (
+            <>
+              {" "}
+              Or{" "}
+              <Link href="/admin/setup" className="underline">
+                run the setup wizard
+              </Link>
+              .
+            </>
+          ) : null}
+        </div>
       </div>
     );
   }
@@ -78,6 +111,7 @@ export default async function AdminOverview() {
 
   return (
     <div className="space-y-6">
+      {setupBanner}
       <div>
         <h1 className="font-serif text-2xl font-semibold text-navy-900">Live operations</h1>
         <p className="text-sm text-muted-foreground">

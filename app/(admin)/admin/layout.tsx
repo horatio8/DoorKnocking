@@ -11,6 +11,7 @@ import {
   Map,
   MapPin,
   Settings as SettingsIcon,
+  Sparkles,
   Tag as TagIcon,
   Users,
 } from "lucide-react";
@@ -23,6 +24,7 @@ import { getActiveClient } from "@/lib/clients/active";
 
 const NAV = [
   { href: "/admin", label: "Overview", icon: BarChart3 },
+  { href: "/admin/setup", label: "Setup wizard", icon: Sparkles },
   { href: "/admin/airtable", label: "Airtable sync", icon: Database },
   { href: "/admin/walkbooks", label: "Walkbooks", icon: Map },
   { href: "/admin/users", label: "Users", icon: Users },
