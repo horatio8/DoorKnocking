@@ -17,10 +17,15 @@ export async function POST(req: Request) {
   }
 
   const supabase = getSupabaseServiceRoleClient();
-  const origin = req.headers.get("origin") ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  // Prefer the configured app URL over the request origin so invites always
+  // land on production even when triggered from a non-public host.
+  const origin =
+    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ??
+    req.headers.get("origin") ??
+    "http://localhost:3000";
   const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, {
     data: { full_name: fullName },
-    redirectTo: `${origin}/login`,
+    redirectTo: `${origin}/set-password`,
   });
   if (error || !data.user) {
     return NextResponse.json({ error: error?.message ?? "invite failed" }, { status: 500 });
