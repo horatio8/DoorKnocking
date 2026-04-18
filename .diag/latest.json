@@ -1,0 +1,65 @@
+{
+  "at": "2026-04-18T15:59:33.487Z",
+  "env": {
+    "has_NEXT_PUBLIC_SUPABASE_URL": true,
+    "NEXT_PUBLIC_SUPABASE_URL_host": "wrqydigzshnxvfvbdpkw.supabase.co",
+    "has_NEXT_PUBLIC_SUPABASE_ANON_KEY": true,
+    "anon_key_prefix": "sb_publishab",
+    "has_SUPABASE_SERVICE_ROLE_KEY": true,
+    "service_role_key_prefix": "sb_secret_7X",
+    "has_NEXT_PUBLIC_MAPBOX_TOKEN": true,
+    "has_MAPBOX_SECRET_TOKEN": false,
+    "has_AIRTABLE_API_KEY": true,
+    "has_AIRTABLE_OAUTH_CLIENT_ID": true,
+    "has_AIRTABLE_OAUTH_CLIENT_SECRET": true,
+    "has_AIRTABLE_OAUTH_REDIRECT_URI": true,
+    "AIRTABLE_OAUTH_REDIRECT_URI": "https://door-knocking.vercel.app/api/airtable/oauth/callback",
+    "has_APP_SECRET": true,
+    "has_ANTHROPIC_API_KEY": true,
+    "has_RESEND_API_KEY": false,
+    "has_NEXT_PUBLIC_APP_URL": false,
+    "node_version": "v24.14.1"
+  },
+  "checks": [
+    {
+      "name": "auth.settings",
+      "ok": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "anon.districts_select",
+      "ok": true
+    },
+    {
+      "name": "service_role.list_users",
+      "ok": true,
+      "detail": "count=1"
+    },
+    {
+      "name": "service_role.users_count",
+      "ok": true,
+      "detail": "count=3"
+    },
+    {
+      "name": "users.orphan_check",
+      "ok": true,
+      "detail": "all public.users rows have a matching auth.users entry"
+    }
+  ],
+  "tables": {
+    "clients": 2,
+    "client_credentials": 2,
+    "districts": 2,
+    "users": 3,
+    "voters": 920,
+    "households": 920,
+    "walkbooks": 0,
+    "walkbook_stops": 0,
+    "door_knocks": 0,
+    "surveys": 0,
+    "survey_questions": 0,
+    "survey_answers": 0,
+    "tags": 0,
+    "voter_tags": 0
+  }
+}
