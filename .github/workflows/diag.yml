@@ -86,8 +86,8 @@ jobs:
               "## migrations",
               "- expected: \(.migrations.expected_count)",
               "- applied: \(.migrations.applied_count)",
-              (if (.migrations.missing | length) > 0 then "- missing: \(.migrations.missing | join(\", \"))" else "- missing: none" end),
-              (if (.migrations.extras | length) > 0 then "- extras: \(.migrations.extras | join(\", \"))" else empty end)
+              (if (.migrations.missing | length) > 0 then "- missing: \(.migrations.missing | join(", "))" else "- missing: none" end),
+              (if (.migrations.extras | length) > 0 then "- extras: \(.migrations.extras | join(", "))" else empty end)
              else empty end)
           ' .diag/latest.json > .diag/summary.md
 
