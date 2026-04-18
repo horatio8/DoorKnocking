@@ -11,6 +11,7 @@ import {
   Map,
   MapPin,
   Settings as SettingsIcon,
+  Sparkles,
   Tag as TagIcon,
   Users,
 } from "lucide-react";
@@ -95,12 +96,22 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               districts={(districts ?? []) as District[]}
             />
           </div>
-          <Link
-            href="/app/map"
-            className="rounded-md border border-navy-100 bg-white px-3 py-1.5 text-xs font-medium text-navy-700 hover:bg-navy-50"
-          >
-            <ListTodo className="mr-1 inline h-3 w-3" /> Field view
-          </Link>
+          <div className="flex items-center gap-2">
+            {session.user.role === "super_admin" && (
+              <Link
+                href="/admin/clients"
+                className="rounded-md bg-navy-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-navy-800"
+              >
+                <Sparkles className="mr-1 inline h-3 w-3" /> Start Client Setup
+              </Link>
+            )}
+            <Link
+              href="/app/map"
+              className="rounded-md border border-navy-100 bg-white px-3 py-1.5 text-xs font-medium text-navy-700 hover:bg-navy-50"
+            >
+              <ListTodo className="mr-1 inline h-3 w-3" /> Field view
+            </Link>
+          </div>
         </header>
         <main className="flex-1 p-6">{children}</main>
       </div>
