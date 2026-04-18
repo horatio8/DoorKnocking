@@ -8,7 +8,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  const { email, fullName, role, districtId } = await req.json();
+  const { email, fullName, role, districtId, clientId } = await req.json();
   if (!email || !role) {
     return NextResponse.json({ error: "email and role required" }, { status: 400 });
   }
@@ -31,13 +31,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: error?.message ?? "invite failed" }, { status: 500 });
   }
 
+  // Scope the user to the active client + optional specific district.
+  // Admins get the whole client; knockers usually get one district as a
+  // default but inherit the full client_access for RLS purposes.
+  const clientAccess = clientId ? [clientId] : [];
+  const districtAccess = districtId ? [districtId] : [];
+
   await supabase
     .from("users")
     .update({
       full_name: fullName,
       role,
       default_district_id: districtId ?? null,
-      district_access: districtId ? [districtId] : [],
+      district_access: districtAccess,
+      client_access: clientAccess,
       active: true,
     })
     .eq("id", data.user.id);
