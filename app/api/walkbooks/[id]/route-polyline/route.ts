@@ -18,13 +18,11 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     .order("order_index");
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const stops = ((rows ?? []) as Array<{
-    order_index: number;
-    household_id: string;
-    households: { id: string; lat: number; lng: number; address_line1: string | null; city: string | null } | null;
-  }>)
-    .map((r) => r.households)
-    .filter((h): h is { id: string; lat: number; lng: number; address_line1: string | null; city: string | null } => !!h)
+  type H = { id: string; lat: number; lng: number; address_line1: string | null; city: string | null };
+  type JoinRow = { order_index: number; household_id: string; households: H | H[] | null };
+  const stops = ((rows ?? []) as unknown as JoinRow[])
+    .map((r) => (Array.isArray(r.households) ? r.households[0] ?? null : r.households))
+    .filter((h): h is H => !!h)
     .map((h) => ({
       id: h.id,
       lat: Number(h.lat),

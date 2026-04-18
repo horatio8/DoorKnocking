@@ -30,11 +30,25 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     .from("walkbook_households")
     .select("household_id, order_index, households(id, lat, lng, neighborhood_id, address_line1)")
     .eq("walkbook_id", params.id);
-  const rows = (wbHH ?? []) as Array<{
+  type HouseholdRow = {
+    id: string;
+    lat: number;
+    lng: number;
+    neighborhood_id: string | null;
+    address_line1: string | null;
+  };
+  type JoinRow = {
     household_id: string;
     order_index: number;
-    households: { id: string; lat: number; lng: number; neighborhood_id: string | null; address_line1: string | null } | null;
-  }>;
+    // PostgREST returns nested FK selects as arrays. We normalise below.
+    households: HouseholdRow | HouseholdRow[] | null;
+  };
+  const rawRows = (wbHH ?? []) as unknown as JoinRow[];
+  const rows = rawRows.map((r) => ({
+    household_id: r.household_id,
+    order_index: r.order_index,
+    households: Array.isArray(r.households) ? (r.households[0] ?? null) : r.households,
+  }));
 
   const hhIds = rows.map((r) => r.household_id);
   const { data: knocks } = await supabase
