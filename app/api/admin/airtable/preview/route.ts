@@ -3,7 +3,10 @@ import { loadSession } from "@/lib/auth/session";
 import { getActiveClient } from "@/lib/clients/active";
 import { AirtableClient } from "@/lib/airtable/client";
 import { mapRecord } from "@/lib/airtable/import";
-import { resolveAirtableToken } from "@/lib/airtable/credentials";
+import {
+  resolveAirtableToken,
+  resolveAirtableTokenForDistrict,
+} from "@/lib/airtable/credentials";
 import type { FieldMapping } from "@/lib/airtable/mapping";
 
 interface Body {
@@ -11,6 +14,7 @@ interface Body {
   tableId: string;
   mapping: FieldMapping;
   limit?: number;
+  districtId?: string;
 }
 
 export async function POST(req: Request) {
@@ -19,16 +23,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  const active = await getActiveClient();
-  const creds = await resolveAirtableToken(active?.id ?? null);
-  if (!creds) {
-    return NextResponse.json({ error: "No Airtable token for this client." }, { status: 412 });
-  }
-
   const body = (await req.json().catch(() => ({}))) as Body;
-  const { baseId, tableId, mapping, limit = 5 } = body;
+  const { baseId, tableId, mapping, limit = 5, districtId } = body;
   if (!baseId || !tableId || !mapping) {
     return NextResponse.json({ error: "baseId, tableId, mapping required" }, { status: 400 });
+  }
+
+  const creds = districtId
+    ? await resolveAirtableTokenForDistrict(districtId)
+    : await resolveAirtableToken((await getActiveClient())?.id ?? null);
+  if (!creds) {
+    return NextResponse.json({ error: "No Airtable token for this client." }, { status: 412 });
   }
 
   try {

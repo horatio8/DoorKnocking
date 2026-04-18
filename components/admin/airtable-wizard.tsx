@@ -81,7 +81,9 @@ export function AirtableConnectionWizard(props: Props) {
     setBusy("Loading tables…");
     setError(null);
     try {
-      const res = await fetch(`/api/admin/airtable/discover?baseId=${encodeURIComponent(baseId)}`);
+      const res = await fetch(
+        `/api/admin/airtable/discover?baseId=${encodeURIComponent(baseId)}&districtId=${encodeURIComponent(props.districtId)}`,
+      );
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? `${res.status}`);
       setTables(body.tables);
@@ -102,7 +104,7 @@ export function AirtableConnectionWizard(props: Props) {
       const res = await fetch("/api/admin/airtable/suggest-mapping", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ baseId, tableId }),
+        body: JSON.stringify({ baseId, tableId, districtId: props.districtId }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? `${res.status}`);
@@ -143,7 +145,7 @@ export function AirtableConnectionWizard(props: Props) {
       const res = await fetch("/api/admin/airtable/preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ baseId, tableId, mapping, limit: 5 }),
+        body: JSON.stringify({ baseId, tableId, mapping, limit: 5, districtId: props.districtId }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? `${res.status}`);

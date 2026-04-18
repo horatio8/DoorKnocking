@@ -38,6 +38,23 @@ export async function resolveAirtableToken(
   return null;
 }
 
+// Resolves the token by district: looks up the district's client_id and then
+// falls through resolveAirtableToken. Use this from API handlers that know
+// which district is being operated on — it's safe to call from the apex
+// (super-admin) host where getActiveClient() would return null.
+export async function resolveAirtableTokenForDistrict(
+  districtId: string,
+): Promise<ResolvedAirtableCredentials | null> {
+  const supabase = getSupabaseServiceRoleClient();
+  const { data, error } = await supabase
+    .from("districts")
+    .select("client_id")
+    .eq("id", districtId)
+    .maybeSingle();
+  if (error || !data?.client_id) return resolveAirtableToken(null);
+  return resolveAirtableToken(data.client_id as string);
+}
+
 export async function saveAirtableToken(args: {
   clientId: string;
   token: string;

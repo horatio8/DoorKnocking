@@ -4,11 +4,15 @@ import { getActiveClient } from "@/lib/clients/active";
 import { AirtableClient } from "@/lib/airtable/client";
 import { listTables } from "@/lib/airtable/metadata";
 import { proposeMapping } from "@/lib/airtable/proposer";
-import { resolveAirtableToken } from "@/lib/airtable/credentials";
+import {
+  resolveAirtableToken,
+  resolveAirtableTokenForDistrict,
+} from "@/lib/airtable/credentials";
 
 interface Body {
   baseId: string;
   tableId: string;
+  districtId?: string;
 }
 
 export async function POST(req: Request) {
@@ -17,19 +21,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  const active = await getActiveClient();
-  const creds = await resolveAirtableToken(active?.id ?? null);
+  const body = (await req.json().catch(() => ({}))) as Body;
+  const { baseId, tableId, districtId } = body;
+  if (!baseId || !tableId) {
+    return NextResponse.json({ error: "baseId and tableId required" }, { status: 400 });
+  }
+
+  const creds = districtId
+    ? await resolveAirtableTokenForDistrict(districtId)
+    : await resolveAirtableToken((await getActiveClient())?.id ?? null);
   if (!creds) {
     return NextResponse.json(
       { error: "No Airtable token configured for this client. Go to Settings → Airtable." },
       { status: 412 },
     );
-  }
-
-  const body = (await req.json().catch(() => ({}))) as Body;
-  const { baseId, tableId } = body;
-  if (!baseId || !tableId) {
-    return NextResponse.json({ error: "baseId and tableId required" }, { status: 400 });
   }
 
   try {
