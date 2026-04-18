@@ -5,6 +5,10 @@ import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { getActiveClient } from "@/lib/clients/active";
 import { Badge } from "@/components/ui/badge";
 import { GenerateWalkbooksButton } from "@/components/admin/generate-walkbooks-button";
+import {
+  WalkbookOverviewMap,
+  type WalkbookViz,
+} from "@/components/admin/walkbook-overview-map";
 import { formatRelative } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -103,6 +107,50 @@ export default async function AdminWalkbooks() {
     }
   }
 
+  // For the overview map: ordered (lat,lng) for every stop in every walkbook.
+  // Two queries (joins + lat lookup) — same split-query pattern that fixed
+  // the empty-list bug. We fetch household rows in batch, then assemble.
+  const overviewWalkbooks: WalkbookViz[] = [];
+  if (wbIds.length > 0) {
+    const { data: stopRows } = await supabase
+      .from("walkbook_households")
+      .select("walkbook_id, order_index, household_id")
+      .in("walkbook_id", wbIds)
+      .order("order_index");
+    const allHHIds = Array.from(
+      new Set(((stopRows ?? []) as Array<{ household_id: string }>).map((r) => r.household_id)),
+    );
+    const coordById = new Map<string, { lat: number; lng: number }>();
+    if (allHHIds.length > 0) {
+      // Chunk to keep IN clause small.
+      const CHUNK = 500;
+      for (let i = 0; i < allHHIds.length; i += CHUNK) {
+        const slice = allHHIds.slice(i, i + CHUNK);
+        const { data } = await supabase
+          .from("households")
+          .select("id, lat, lng")
+          .in("id", slice)
+          .not("lat", "is", null)
+          .not("lng", "is", null);
+        for (const h of (data ?? []) as Array<{ id: string; lat: number; lng: number }>) {
+          coordById.set(h.id, { lat: Number(h.lat), lng: Number(h.lng) });
+        }
+      }
+    }
+    const stopsByWalkbook = new Map<string, Array<{ lat: number; lng: number }>>();
+    for (const r of (stopRows ?? []) as Array<{ walkbook_id: string; household_id: string; order_index: number }>) {
+      const c = coordById.get(r.household_id);
+      if (!c) continue;
+      const list = stopsByWalkbook.get(r.walkbook_id) ?? [];
+      list.push(c);
+      stopsByWalkbook.set(r.walkbook_id, list);
+    }
+    for (const w of walkbookRows) {
+      const stops = stopsByWalkbook.get(w.id) ?? [];
+      if (stops.length > 0) overviewWalkbooks.push({ id: w.id, name: w.name, stops });
+    }
+  }
+
   function metrics(wbId: string, householdCount: number) {
     const events = knocksByWalkbook.get(wbId) ?? [];
     const distinctHouseholds = new Set(events.map((e) => e.household_id));
@@ -153,6 +201,10 @@ export default async function AdminWalkbooks() {
             of walking work planned
           </span>
         </div>
+      ) : null}
+
+      {overviewWalkbooks.length > 0 ? (
+        <WalkbookOverviewMap walkbooks={overviewWalkbooks} />
       ) : null}
 
       {total === 0 ? (
