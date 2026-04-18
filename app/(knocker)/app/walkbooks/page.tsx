@@ -27,6 +27,22 @@ export default async function KnockerWalkbooks() {
       <p className="text-sm text-muted-foreground">
         Assigned clusters of houses. Tap a walkbook to focus the map.
       </p>
+
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <Link
+          href="/app/walkbooks/browse"
+          className="rounded-md border border-navy-200 bg-white p-3 text-center text-sm font-medium text-navy-900 hover:bg-navy-50"
+        >
+          Pick a walkbook
+        </Link>
+        <Link
+          href="/app/walkbooks/dynamic"
+          className="rounded-md bg-navy-900 p-3 text-center text-sm font-medium text-white hover:bg-navy-800"
+        >
+          Walk from here
+        </Link>
+      </div>
+
       <div className="mt-5 space-y-3">
         {items.length === 0 ? (
           <p className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">

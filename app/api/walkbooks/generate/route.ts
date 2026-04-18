@@ -63,26 +63,24 @@ export async function POST(request: Request) {
     .not("lat", "is", null)
     .not("lng", "is", null);
 
-  // Exclude households that are fully contacted (every voter knocked) if the
-  // caller asked for that. Implementation deferred to voter-level in W1 —
-  // here we just use any door_knocks row as the proxy. Tighten in W4.
-  if (body.excludeContacted) {
-    const { data: knocked } = await supabase
-      .from("door_knocks")
-      .select("household_id")
-      .eq("district_id", body.districtId);
-    const excluded = new Set(((knocked ?? []) as Array<{ household_id: string }>).map((k) => k.household_id));
-    if (excluded.size > 0) query = query.not("id", "in", `(${Array.from(excluded).join(",")})`);
-  }
-
   const { data: households, error: hErr } = await query;
   if (hErr) return NextResponse.json({ error: hErr.message }, { status: 500 });
   if (!households || households.length === 0) {
     return NextResponse.json({ error: "no households match the filter" }, { status: 400 });
   }
 
+  let filteredHouseholds = households;
+  if (body.excludeContacted) {
+    const allIds = households.map((h) => h.id as string);
+    const knockedIds = await fetchKnockedHouseholdIds(supabase, allIds);
+    filteredHouseholds = households.filter((h) => !knockedIds.has(h.id as string));
+    if (filteredHouseholds.length === 0) {
+      return NextResponse.json({ error: "every household in this district is already contacted" }, { status: 400 });
+    }
+  }
+
   // voter_count per household (for contact-time weighting).
-  const ids = households.map((h) => h.id as string);
+  const ids = filteredHouseholds.map((h) => h.id as string);
   const voterCounts = new Map<string, number>();
   {
     const chunk = 500;
@@ -98,7 +96,7 @@ export async function POST(request: Request) {
     }
   }
 
-  const stops: GeneratorInput[] = households.map((h) => ({
+  const stops: GeneratorInput[] = filteredHouseholds.map((h) => ({
     id: h.id as string,
     lat: Number(h.lat),
     lng: Number(h.lng),
@@ -129,7 +127,7 @@ export async function POST(request: Request) {
       continue;
     }
     const { data: knocks } = await supabase
-      .from("door_knocks")
+      .from("knock_events")
       .select("household_id", { count: "exact" })
       .in(
         "household_id",
@@ -213,4 +211,25 @@ export async function POST(request: Request) {
     })),
     durationMs,
   });
+}
+
+// Returns the set of household_ids from `candidates` that have at least one
+// knock_event row. Chunks the IN clause to stay under PostgREST limits.
+async function fetchKnockedHouseholdIds(
+  supabase: ReturnType<typeof getSupabaseServiceRoleClient>,
+  candidates: string[],
+): Promise<Set<string>> {
+  const out = new Set<string>();
+  const CHUNK = 500;
+  for (let i = 0; i < candidates.length; i += CHUNK) {
+    const slice = candidates.slice(i, i + CHUNK);
+    const { data } = await supabase
+      .from("knock_events")
+      .select("household_id")
+      .in("household_id", slice);
+    for (const k of (data ?? []) as Array<{ household_id: string }>) {
+      out.add(k.household_id);
+    }
+  }
+  return out;
 }
