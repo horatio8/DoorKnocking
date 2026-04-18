@@ -49,8 +49,32 @@ export function WalkbookRouteMap({
   useEffect(() => {
     if (!ref.current || mapRef.current) return;
     if (stops.length === 0) return;
+
+    // Group stops by identical (lat,lng) — apartment buildings show up as
+    // 20+ rows at the exact same coordinates, which otherwise pile markers
+    // on the same pixel and look like a single cluster count.
+    interface StopGroup {
+      lat: number;
+      lng: number;
+      members: Array<{ num: number; stop: RouteStop }>;
+    }
+    const groups: StopGroup[] = [];
+    stops.forEach((s, i) => {
+      const last = groups[groups.length - 1];
+      const key = `${s.lat.toFixed(6)},${s.lng.toFixed(6)}`;
+      const existing = groups.find(
+        (g) => `${g.lat.toFixed(6)},${g.lng.toFixed(6)}` === key,
+      );
+      if (existing) {
+        existing.members.push({ num: i + 1, stop: s });
+      } else {
+        groups.push({ lat: s.lat, lng: s.lng, members: [{ num: i + 1, stop: s }] });
+      }
+      void last;
+    });
+
     const bounds = new mapboxgl.LngLatBounds();
-    for (const s of stops) bounds.extend([s.lng, s.lat]);
+    for (const g of groups) bounds.extend([g.lng, g.lat]);
 
     const map = new mapboxgl.Map({
       container: ref.current,
@@ -62,9 +86,9 @@ export function WalkbookRouteMap({
     mapRef.current = map;
 
     map.on("load", () => {
-      // Straight-line connector — replaced by real polyline below if we get
-      // one from the API.
-      const straight: Array<[number, number]> = stops.map((s) => [s.lng, s.lat]);
+      // Straight-line connector between grouped stops — deduped coordinates so
+      // we don't render zero-length segments inside an apartment building.
+      const straight: Array<[number, number]> = groups.map((g) => [g.lng, g.lat]);
       map.addSource("route", {
         type: "geojson",
         data: {
@@ -80,17 +104,31 @@ export function WalkbookRouteMap({
         paint: { "line-color": "#0B1F3A", "line-width": 3, "line-opacity": 0.85 },
       });
 
-      // Numbered markers.
-      stops.forEach((s, i) => {
+      // One marker per unique coordinate. Label is the stop-range inside that
+      // building (e.g., "1-5" if stops 1 through 5 are all the same
+      // address). Popup lists every apartment at that point.
+      groups.forEach((g) => {
+        const label =
+          g.members.length === 1
+            ? String(g.members[0].num)
+            : `${g.members[0].num}–${g.members[g.members.length - 1].num}`;
+        const width = label.length > 3 ? 36 : 28;
         const el = document.createElement("div");
-        el.style.cssText =
-          "display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:9999px;background:#0B1F3A;color:#fff;font:600 11px system-ui;border:2px solid #fff;box-shadow:0 1px 2px rgba(0,0,0,.25)";
-        el.textContent = String(i + 1);
+        el.style.cssText = `display:flex;align-items:center;justify-content:center;min-width:${width}px;height:${width}px;padding:0 6px;border-radius:9999px;background:#0B1F3A;color:#fff;font:600 11px system-ui;border:2px solid #fff;box-shadow:0 1px 2px rgba(0,0,0,.25);white-space:nowrap`;
+        el.textContent = label;
+
+        const popupHtml = g.members
+          .map(
+            (m) =>
+              `<div style="padding:2px 0"><strong>#${m.num}</strong> ${escapeHtml(m.stop.address || "")}</div>`,
+          )
+          .join("");
+
         new mapboxgl.Marker({ element: el, anchor: "center" })
-          .setLngLat([s.lng, s.lat])
+          .setLngLat([g.lng, g.lat])
           .setPopup(
-            new mapboxgl.Popup({ offset: 16 }).setHTML(
-              `<div style="font:12px system-ui;color:#0B1F3A;padding:2px 4px"><strong>#${i + 1}</strong> ${escapeHtml(s.address || "")}</div>`,
+            new mapboxgl.Popup({ offset: 16, maxWidth: "300px" }).setHTML(
+              `<div style="font:12px system-ui;color:#0B1F3A;padding:4px 6px">${popupHtml}</div>`,
             ),
           )
           .addTo(map);
