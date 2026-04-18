@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { PLATFORM_FIELDS, type FieldMapping } from "@/lib/airtable/mapping";
 import type { AirtableField } from "@/lib/airtable/metadata";
@@ -25,6 +24,11 @@ interface DiscoveredTable {
   id: string;
   name: string;
   fields: AirtableField[];
+}
+
+interface DiscoveredBase {
+  id: string;
+  name: string;
 }
 
 interface Proposal {
@@ -57,6 +61,9 @@ export function AirtableConnectionWizard(props: Props) {
   );
   const [mapping, setMapping] = useState<FieldMapping>(props.initialMapping ?? {});
   const [previewRows, setPreviewRows] = useState<unknown[] | null>(null);
+  const [bases, setBases] = useState<DiscoveredBase[] | null>(null);
+  const [loadingBases, setLoadingBases] = useState(false);
+  const [basesError, setBasesError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<Step>(props.initialMapping ? "review" : "connect");
@@ -77,24 +84,61 @@ export function AirtableConnectionWizard(props: Props) {
     setError(null);
   }, [props.districtId, props.initialBaseId, props.initialTableId, props.initialMapping]);
 
-  async function discoverTables() {
-    setBusy("Loading tables…");
-    setError(null);
+  async function loadBases() {
+    setLoadingBases(true);
+    setBasesError(null);
     try {
       const res = await fetch(
-        `/api/admin/airtable/discover?baseId=${encodeURIComponent(baseId)}&districtId=${encodeURIComponent(props.districtId)}`,
+        `/api/admin/airtable/discover?districtId=${encodeURIComponent(props.districtId)}`,
       );
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? `${res.status}`);
-      setTables(body.tables);
-      const match = body.tables.find((t: DiscoveredTable) => t.id === tableId) ?? null;
-      setSelectedTable(match);
+      setBases((body.bases as DiscoveredBase[]) ?? []);
     } catch (e) {
-      setError((e as Error).message);
+      setBasesError((e as Error).message);
     } finally {
-      setBusy(null);
+      setLoadingBases(false);
     }
   }
+
+  useEffect(() => {
+    setBases(null);
+    loadBases();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.districtId]);
+
+  useEffect(() => {
+    if (!baseId) {
+      setTables(null);
+      setSelectedTable(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setBusy("Loading tables…");
+      setError(null);
+      try {
+        const res = await fetch(
+          `/api/admin/airtable/discover?baseId=${encodeURIComponent(baseId)}&districtId=${encodeURIComponent(props.districtId)}`,
+        );
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error ?? `${res.status}`);
+        if (cancelled) return;
+        setTables(body.tables);
+        const match = (body.tables as DiscoveredTable[]).find((t) => t.id === tableId) ?? null;
+        setSelectedTable(match);
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message);
+      } finally {
+        if (!cancelled) setBusy(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // tableId intentionally excluded — we only refetch when baseId changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseId, props.districtId]);
 
   async function suggestMapping() {
     if (!baseId || !tableId) return;
@@ -207,9 +251,15 @@ export function AirtableConnectionWizard(props: Props) {
           baseId={baseId}
           tableId={tableId}
           tables={tables}
-          onBaseIdChange={setBaseId}
+          bases={bases}
+          loadingBases={loadingBases}
+          basesError={basesError}
+          onBaseIdChange={(v) => {
+            setBaseId(v);
+            setTableId("");
+          }}
           onTableIdChange={setTableId}
-          onDiscover={discoverTables}
+          onReloadBases={loadBases}
           onSuggest={suggestMapping}
           busy={busy}
         />
@@ -274,65 +324,100 @@ function ConnectStep({
   baseId,
   tableId,
   tables,
+  bases,
+  loadingBases,
+  basesError,
   onBaseIdChange,
   onTableIdChange,
-  onDiscover,
+  onReloadBases,
   onSuggest,
   busy,
 }: {
   baseId: string;
   tableId: string;
   tables: DiscoveredTable[] | null;
+  bases: DiscoveredBase[] | null;
+  loadingBases: boolean;
+  basesError: string | null;
   onBaseIdChange(v: string): void;
   onTableIdChange(v: string): void;
-  onDiscover(): void;
+  onReloadBases(): void;
   onSuggest(): void;
   busy: string | null;
 }) {
+  const selectClass =
+    "w-full rounded-md border border-navy-200 bg-white px-2 py-2 text-sm text-navy-900 focus:border-navy-400 focus:outline-none disabled:bg-navy-50 disabled:text-muted-foreground";
+  const tablePlaceholder = !baseId
+    ? "Pick a base first"
+    : !tables
+      ? "Loading tables…"
+      : tables.length === 0
+        ? "(no tables in this base)"
+        : "Select a table…";
   return (
     <div className="space-y-4 rounded-lg border border-border bg-white p-4">
       <h2 className="font-medium text-navy-900">Connect an Airtable base</h2>
       <p className="text-xs text-muted-foreground">
-        Paste the base ID (starts with <code>app…</code>) and the voter table ID
-        (starts with <code>tbl…</code>). The Personal Access Token configured
-        for the platform must have read access to this base.
+        Pick the base and voter table from your Airtable workspace. The list
+        comes from the Personal Access Token saved for this client.
       </p>
+
+      {basesError ? (
+        <div className="flex items-center justify-between rounded border border-crimson/30 bg-crimson/5 p-2 text-xs text-crimson">
+          <span>Couldn&apos;t load bases: {basesError}</span>
+          <button type="button" onClick={onReloadBases} className="underline">
+            retry
+          </button>
+        </div>
+      ) : null}
+
       <div className="grid gap-3 md:grid-cols-2">
-        <Input
-          placeholder="appz0KOPIaQFCxxw3"
-          value={baseId}
-          onChange={(e) => onBaseIdChange(e.target.value)}
-        />
-        <Input
-          placeholder="tblCpmh6G97Zy5S8P"
-          value={tableId}
-          onChange={(e) => onTableIdChange(e.target.value)}
-        />
+        <label className="flex flex-col gap-1 text-xs font-medium text-navy-700">
+          Base
+          <select
+            className={selectClass}
+            value={baseId}
+            onChange={(e) => onBaseIdChange(e.target.value)}
+            disabled={loadingBases || !bases || !!basesError}
+          >
+            <option value="">
+              {loadingBases
+                ? "Loading your bases…"
+                : bases && bases.length === 0
+                  ? "(no bases visible to this PAT)"
+                  : "Select a base…"}
+            </option>
+            {(bases ?? []).map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs font-medium text-navy-700">
+          Voter table
+          <select
+            className={selectClass}
+            value={tableId}
+            onChange={(e) => onTableIdChange(e.target.value)}
+            disabled={!baseId || !tables || tables.length === 0}
+          >
+            <option value="">{tablePlaceholder}</option>
+            {(tables ?? []).map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name} ({t.fields.length} fields)
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
+
       <div className="flex gap-2">
-        <Button type="button" variant="outline" onClick={onDiscover} disabled={!baseId || !!busy}>
-          List tables in base
-        </Button>
         <Button type="button" onClick={onSuggest} disabled={!baseId || !tableId || !!busy} variant="accent">
           {busy ?? "Ask Claude to propose mapping"}
         </Button>
       </div>
-      {tables ? (
-        <div className="space-y-1 rounded border border-navy-100 bg-navy-50/40 p-3 text-xs">
-          <p className="font-semibold text-navy-700">Tables in base:</p>
-          {tables.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => onTableIdChange(t.id)}
-              className={`block w-full rounded px-2 py-1 text-left hover:bg-white ${
-                t.id === tableId ? "bg-white font-medium" : ""
-              }`}
-            >
-              <span className="font-mono">{t.id}</span> — {t.name} · {t.fields.length} fields
-            </button>
-          ))}
-        </div>
-      ) : null}
     </div>
   );
 }

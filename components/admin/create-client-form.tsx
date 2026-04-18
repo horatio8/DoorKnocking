@@ -149,13 +149,12 @@ export function CreateClientForm({ initialOpen = false }: { initialOpen?: boolea
           value={form.district_country} onChange={(e) => setForm({ ...form, district_country: e.target.value })} />
         <Input required placeholder="Region (state/electorate)"
           value={form.district_region} onChange={(e) => setForm({ ...form, district_region: e.target.value })} />
-        <Input placeholder="Airtable base id (app…)"
-          value={form.airtable_base_id} onChange={(e) => setForm({ ...form, airtable_base_id: e.target.value })} />
-        <Input placeholder="Airtable voters table id (tbl…)"
-          value={form.airtable_voters_table_id} onChange={(e) => setForm({ ...form, airtable_voters_table_id: e.target.value })} />
         <Input placeholder="Timezone"
           value={form.timezone} onChange={(e) => setForm({ ...form, timezone: e.target.value })} />
       </div>
+      <p className="-mt-1 text-xs text-muted-foreground">
+        You&apos;ll pick the Airtable base and voter table from a list in the next step.
+      </p>
 
       {error ? <p className="text-xs text-crimson">{error}</p> : null}
 
