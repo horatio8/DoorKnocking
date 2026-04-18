@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { getActiveClient } from "@/lib/clients/active";
 import { Badge } from "@/components/ui/badge";
 import { GenerateWalkbooksButton } from "@/components/admin/generate-walkbooks-button";
 import { formatRelative } from "@/lib/utils";
@@ -12,13 +13,35 @@ export default async function AdminWalkbooks() {
   const session = await loadSession();
   if (!session) redirect("/login");
   const supabase = getSupabaseServerClient();
-  const districtId = session.district?.id;
+  const activeClient = await getActiveClient();
 
-  const { data: walkbooks } = await supabase
-    .from("walkbooks")
-    .select("*, walkbook_assignments(user_id, users(full_name), unassigned_at)")
-    .eq("district_id", districtId ?? "")
-    .order("created_at", { ascending: false });
+  // Load every district the active client owns — walkbooks get rolled up
+  // across all of them. Falls back to the user's default district if no
+  // client is in context (admin on their own subdomain, pre-switcher).
+  const { data: districtRows } = activeClient
+    ? await supabase
+        .from("districts")
+        .select("id, name, slug")
+        .eq("client_id", activeClient.id)
+        .order("name")
+    : session.district?.id
+      ? await supabase
+          .from("districts")
+          .select("id, name, slug")
+          .eq("id", session.district.id)
+      : { data: [] as Array<{ id: string; name: string; slug: string }> };
+  const districts = (districtRows ?? []) as Array<{ id: string; name: string; slug: string }>;
+  const districtIds = districts.map((d) => d.id);
+  const districtNameById = new Map(districts.map((d) => [d.id, d.name]));
+
+  const { data: walkbooks } =
+    districtIds.length > 0
+      ? await supabase
+          .from("walkbooks")
+          .select("*, walkbook_assignments(user_id, users(full_name), unassigned_at)")
+          .in("district_id", districtIds)
+          .order("created_at", { ascending: false })
+      : { data: [] as unknown as [] };
 
   const wbIds = ((walkbooks ?? []) as Array<{ id: string }>).map((w) => w.id);
   const knocksByWalkbook = new Map<string, Array<{ household_id: string; duration_seconds: number | null }>>();
@@ -50,6 +73,7 @@ export default async function AdminWalkbooks() {
   const list = (walkbooks ?? []) as unknown as Array<{
     id: string;
     name: string;
+    district_id: string;
     household_count: number;
     status: string;
     kind: string;
@@ -78,7 +102,9 @@ export default async function AdminWalkbooks() {
             Geographic clusters of households assigned as a single unit of work.
           </p>
         </div>
-        {districtId ? <GenerateWalkbooksButton districtId={districtId} /> : null}
+        {districts.length > 0 ? (
+          <GenerateWalkbooksButton districts={districts} />
+        ) : null}
       </div>
 
       {total > 0 ? (
@@ -124,7 +150,16 @@ export default async function AdminWalkbooks() {
                 className="group block rounded-lg border border-border bg-white p-4 transition hover:border-navy-300 hover:shadow-sm"
               >
                 <div className="flex items-start justify-between gap-2">
-                  <p className="font-medium text-navy-900 group-hover:text-navy-700">{wb.name}</p>
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-navy-900 group-hover:text-navy-700">
+                      {wb.name}
+                    </p>
+                    {districts.length > 1 && districtNameById.has(wb.district_id) ? (
+                      <p className="text-[10px] uppercase tracking-widest text-navy-500">
+                        {districtNameById.get(wb.district_id)}
+                      </p>
+                    ) : null}
+                  </div>
                   <StatusChip status={wb.status} kind={wb.kind} />
                 </div>
 

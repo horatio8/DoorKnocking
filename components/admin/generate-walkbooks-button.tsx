@@ -14,9 +14,20 @@ interface WalkbookResult {
 
 const DURATION_OPTIONS = [30, 60, 90, 120];
 
-export function GenerateWalkbooksButton({ districtId }: { districtId: string }) {
+interface DistrictOption {
+  id: string;
+  name: string;
+  slug?: string;
+}
+
+export function GenerateWalkbooksButton({
+  districts,
+}: {
+  districts: DistrictOption[];
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [selectedDistrictId, setSelectedDistrictId] = useState(districts[0]?.id ?? "");
   const [duration, setDuration] = useState(90);
   const [priorityOnly, setPriorityOnly] = useState(false);
   const [excludeContacted, setExcludeContacted] = useState(true);
@@ -55,7 +66,7 @@ export function GenerateWalkbooksButton({ districtId }: { districtId: string }) 
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          districtId,
+          districtId: selectedDistrictId,
           targetDurationMinutes: duration,
           priorityOnly,
           excludeContacted,
@@ -99,6 +110,24 @@ export function GenerateWalkbooksButton({ districtId }: { districtId: string }) 
           </div>
 
           <div className="mt-4 space-y-3">
+            {districts.length > 1 ? (
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-navy-500">
+                  District
+                </p>
+                <select
+                  value={selectedDistrictId}
+                  onChange={(e) => setSelectedDistrictId(e.target.value)}
+                  className="mt-1.5 w-full rounded-md border border-navy-200 bg-white px-2 py-2 text-sm"
+                >
+                  {districts.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-widest text-navy-500">
                 Target duration per walkbook
@@ -161,7 +190,12 @@ export function GenerateWalkbooksButton({ districtId }: { districtId: string }) 
             </p>
 
             <div className="flex items-center gap-2 pt-1">
-              <Button onClick={run} disabled={busy} variant="accent" className="flex-1">
+              <Button
+                onClick={run}
+                disabled={busy || !selectedDistrictId}
+                variant="accent"
+                className="flex-1"
+              >
                 {busy ? "Generating…" : "Run"}
               </Button>
               <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
