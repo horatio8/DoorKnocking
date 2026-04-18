@@ -1,4 +1,4 @@
-# diag @ 2026-04-18T21:19:10.633Z
+# diag @ 2026-04-18T21:45:12.922Z
 
 ## env
 - has_NEXT_PUBLIC_SUPABASE_URL: true
@@ -26,6 +26,7 @@
 - ✅ service_role.list_users — count=1
 - ✅ service_role.users_count — count=4
 - ✅ users.orphan_check — all public.users rows have a matching auth.users entry
+- ❌ migrations.repo_vs_db — Invalid schema: supabase_migrations
 
 ## tables
 - clients: 2
@@ -34,11 +35,11 @@
 - users: 4
 - voters: 920
 - households: 920
-- walkbooks: 109
-- walkbook_households: 456
+- walkbooks: 77
+- walkbook_households: 920
 - walkbook_assignments: 0
-- walk_time_calibration: 1
-- walkbook_generation_runs: 1
+- walk_time_calibration: 2
+- walkbook_generation_runs: 4
 - knock_events: 0
 - surveys: 0
 - survey_questions: 0
@@ -48,8 +49,8 @@
 
 
 ## vercel
-- state: ERROR
-- sha: 014d5a8
+- state: READY
+- sha: df6660c
 - target: production
-- created: 58266-07-15T03:47:30Z
-- url: door-knocking-ckik38sf6-jamesflynn-2033s-projects.vercel.app
+- created: 58266-07-31T08:02:34Z
+- url: door-knocking-b0gp3ocaw-jamesflynn-2033s-projects.vercel.app
