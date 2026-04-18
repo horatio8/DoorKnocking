@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { GenerateWalkbooksButton } from "@/components/admin/generate-walkbooks-button";
 import { formatRelative } from "@/lib/utils";
 
@@ -20,10 +20,8 @@ export default async function AdminWalkbooks() {
     .eq("district_id", districtId ?? "")
     .order("created_at", { ascending: false });
 
-  // Efficiency metrics: doors/hour and completion per walkbook. Pull once,
-  // map in memory — keeps the page simple and still correct at this scale.
   const wbIds = ((walkbooks ?? []) as Array<{ id: string }>).map((w) => w.id);
-  let knocksByWalkbook = new Map<string, Array<{ household_id: string; duration_seconds: number | null }>>();
+  const knocksByWalkbook = new Map<string, Array<{ household_id: string; duration_seconds: number | null }>>();
   if (wbIds.length > 0) {
     const { data: events } = await supabase
       .from("knock_events")
@@ -35,6 +33,7 @@ export default async function AdminWalkbooks() {
       knocksByWalkbook.set(e.walkbook_id, list);
     }
   }
+
   function metrics(wbId: string, householdCount: number) {
     const events = knocksByWalkbook.get(wbId) ?? [];
     const distinctHouseholds = new Set(events.map((e) => e.household_id));
@@ -45,12 +44,34 @@ export default async function AdminWalkbooks() {
     const hours = totalSeconds / 3600;
     const doorsPerHour = hours > 0 ? distinctHouseholds.size / hours : null;
     const completion = householdCount > 0 ? distinctHouseholds.size / householdCount : 0;
-    return { doorsPerHour, completion, knocks: events.length };
+    return { doorsPerHour, completion, knocks: events.length, doorsKnocked: distinctHouseholds.size };
   }
 
+  const list = (walkbooks ?? []) as unknown as Array<{
+    id: string;
+    name: string;
+    household_count: number;
+    status: string;
+    kind: string;
+    estimated_duration_minutes: number | null;
+    target_duration_minutes: number | null;
+    created_at: string;
+    walkbook_assignments?: Array<{
+      unassigned_at: string | null;
+      users?: { full_name?: string } | Array<{ full_name?: string }> | null;
+    }>;
+  }>;
+
+  const total = list.length;
+  const totalDoors = list.reduce((sum, w) => sum + (w.household_count ?? 0), 0);
+  const totalEstimatedMinutes = list.reduce(
+    (sum, w) => sum + (w.estimated_duration_minutes ?? w.target_duration_minutes ?? 0),
+    0,
+  );
+
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="font-serif text-2xl font-semibold text-navy-900">Walkbooks</h1>
           <p className="text-sm text-muted-foreground">
@@ -60,55 +81,99 @@ export default async function AdminWalkbooks() {
         {districtId ? <GenerateWalkbooksButton districtId={districtId} /> : null}
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {((walkbooks ?? []) as unknown as Array<{
-          id: string;
-          name: string;
-          household_count: number;
-          status: string;
-          created_at: string;
-          walkbook_assignments?: Array<{
-            unassigned_at: string | null;
-            users?: { full_name?: string } | Array<{ full_name?: string }> | null;
-          }>;
-        }>).map((wb) => {
-          const assignment = wb.walkbook_assignments?.find((a) => a.unassigned_at === null);
-          const assignedUser = Array.isArray(assignment?.users) ? assignment?.users[0] : assignment?.users;
-          return (
-            <Link key={wb.id} href={`/admin/walkbooks/${wb.id}`}>
-              <Card className="transition hover:border-navy-100">
-                <CardHeader>
-                  <CardTitle>{wb.name}</CardTitle>
-                </CardHeader>
-                <CardContent className="text-sm text-muted-foreground">
-                  <p>{wb.household_count} households · {wb.status}</p>
-                  {(() => {
-                    const m = metrics(wb.id, wb.household_count);
-                    return (
-                      <p className="text-xs">
-                        {Math.round(m.completion * 100)}% complete
-                        {m.doorsPerHour != null ? ` · ${m.doorsPerHour.toFixed(1)} doors/hr` : ""}
-                        {m.knocks > 0 ? ` · ${m.knocks} knocks` : ""}
-                      </p>
-                    );
-                  })()}
-                  <p className="mt-1">
-                    {assignedUser?.full_name
-                      ? `Assigned to ${assignedUser.full_name}`
-                      : "Unassigned"}
-                  </p>
-                  <p className="text-xs">Created {formatRelative(wb.created_at)}</p>
-                </CardContent>
-              </Card>
-            </Link>
-          );
-        })}
-        {(walkbooks ?? []).length === 0 ? (
-          <p className="rounded-md border border-dashed border-border p-6 text-sm text-muted-foreground md:col-span-2 xl:col-span-3">
-            No walkbooks yet. Click “Auto-generate walkbooks” above to create them from current households.
+      {total > 0 ? (
+        <div className="flex flex-wrap gap-x-6 gap-y-1 rounded-md border border-border bg-white px-4 py-3 text-xs text-muted-foreground">
+          <span>
+            <span className="font-semibold text-navy-900">{total}</span> walkbooks
+          </span>
+          <span>
+            <span className="font-semibold text-navy-900">{totalDoors.toLocaleString()}</span> doors total
+          </span>
+          <span>
+            <span className="font-semibold text-navy-900">
+              {Math.round(totalEstimatedMinutes / 60)}h {totalEstimatedMinutes % 60}m
+            </span>{" "}
+            of walking work planned
+          </span>
+        </div>
+      ) : null}
+
+      {total === 0 ? (
+        <div className="rounded-lg border border-dashed border-border bg-white p-10 text-center">
+          <p className="text-sm text-navy-900">No walkbooks yet.</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Use <strong>Generate walkbooks</strong> in the top-right to cluster your households
+            into walkable routes.
           </p>
-        ) : null}
-      </div>
+        </div>
+      ) : (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {list.map((wb) => {
+            const assignment = wb.walkbook_assignments?.find((a) => a.unassigned_at === null);
+            const assignedUser = Array.isArray(assignment?.users)
+              ? assignment?.users[0]
+              : assignment?.users;
+            const m = metrics(wb.id, wb.household_count);
+            const pct = Math.round(m.completion * 100);
+            const est = wb.estimated_duration_minutes ?? wb.target_duration_minutes ?? null;
+
+            return (
+              <Link
+                key={wb.id}
+                href={`/admin/walkbooks/${wb.id}`}
+                className="group block rounded-lg border border-border bg-white p-4 transition hover:border-navy-300 hover:shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-medium text-navy-900 group-hover:text-navy-700">{wb.name}</p>
+                  <StatusChip status={wb.status} kind={wb.kind} />
+                </div>
+
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                  <span>{wb.household_count} doors</span>
+                  {est ? <span>~{est}m</span> : null}
+                  {m.doorsPerHour != null ? <span>{m.doorsPerHour.toFixed(1)} doors/hr</span> : null}
+                </div>
+
+                <div className="mt-3">
+                  <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                    <span>
+                      {m.doorsKnocked} of {wb.household_count} knocked
+                    </span>
+                    <span>{pct}%</span>
+                  </div>
+                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-navy-50">
+                    <div
+                      className="h-full bg-navy-900 transition-all"
+                      style={{ width: `${Math.min(100, pct)}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
+                  <span>
+                    {assignedUser?.full_name ? `→ ${assignedUser.full_name}` : "Unassigned"}
+                  </span>
+                  <span>{formatRelative(wb.created_at)}</span>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
+}
+
+function StatusChip({ status, kind }: { status: string; kind?: string }) {
+  if (kind === "dynamic") return <Badge variant="secondary">Dynamic</Badge>;
+  if (kind === "custom") return <Badge variant="secondary">Custom</Badge>;
+  switch (status) {
+    case "complete":
+      return <Badge variant="success">Complete</Badge>;
+    case "in_progress":
+      return <Badge variant="warning">In progress</Badge>;
+    case "open":
+    default:
+      return <Badge variant="secondary">Open</Badge>;
+  }
 }
