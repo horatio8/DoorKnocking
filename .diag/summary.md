@@ -1,4 +1,4 @@
-# diag @ 2026-04-18T22:25:58.777Z
+# diag @ 2026-04-18T22:27:42.811Z
 
 ## env
 - has_NEXT_PUBLIC_SUPABASE_URL: true
@@ -49,8 +49,8 @@
 
 
 ## vercel
-- state: ERROR
-- sha: 94c06f4
+- state: READY
+- sha: 4608fef
 - target: production
-- created: 2026-04-18T22:25:34Z
-- url: door-knocking-iiu8q2ek9-jamesflynn-2033s-projects.vercel.app
+- created: 2026-04-18T22:27:06Z
+- url: door-knocking-rgc4bg25o-jamesflynn-2033s-projects.vercel.app
