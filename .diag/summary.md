@@ -1,4 +1,4 @@
-# diag @ 2026-04-18T16:57:05.187Z
+# diag @ 2026-04-18T17:24:21.468Z
 
 ## env
 - has_NEXT_PUBLIC_SUPABASE_URL: true
@@ -16,8 +16,8 @@
 - AIRTABLE_OAUTH_REDIRECT_URI: https://door-knocking.vercel.app/api/airtable/oauth/callback
 - has_APP_SECRET: true
 - has_ANTHROPIC_API_KEY: true
-- has_RESEND_API_KEY: false
-- has_NEXT_PUBLIC_APP_URL: false
+- has_RESEND_API_KEY: true
+- has_NEXT_PUBLIC_APP_URL: true
 - node_version: v24.14.1
 
 ## checks
