@@ -3,6 +3,8 @@ import { createClient } from "@supabase/supabase-js";
 
 // /api/diag — runs a handful of server-side checks and returns JSON.
 // Public, but only exposes presence/connectivity info, not values.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 export async function GET() {
   const report: Record<string, unknown> = {
     at: new Date().toISOString(),
