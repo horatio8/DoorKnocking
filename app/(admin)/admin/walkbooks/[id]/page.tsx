@@ -64,19 +64,19 @@ export default async function WalkbookDetail({ params }: { params: { id: string 
     }>).map((h) => [h.id, h]),
   );
 
-  const stops: RouteStop[] = ordered
-    .map((r) => {
-      const h = hhById.get(r.household_id);
-      if (!h || h.lat == null || h.lng == null) return null;
-      return {
+  const stops: RouteStop[] = ordered.flatMap((r) => {
+    const h = hhById.get(r.household_id);
+    if (!h || h.lat == null || h.lng == null) return [];
+    return [
+      {
         id: h.id,
         lat: Number(h.lat),
         lng: Number(h.lng),
         address: [h.address_line1, h.city].filter(Boolean).join(", "),
         status: h.status,
-      };
-    })
-    .filter((s): s is RouteStop => s !== null);
+      },
+    ];
+  });
 
   const est = wb.estimated_duration_minutes ?? wb.target_duration_minutes;
 
