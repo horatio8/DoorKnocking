@@ -182,7 +182,15 @@ export default async function AdminWalkbooks() {
           </p>
         </div>
         {districts.length > 0 ? (
-          <GenerateWalkbooksButton districts={districts} />
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/admin/walkbooks/assign"
+              className="inline-flex items-center rounded-md border border-navy-200 bg-white px-3 py-1.5 text-sm font-medium text-navy-900 hover:bg-navy-50"
+            >
+              Assign walkbooks →
+            </Link>
+            <GenerateWalkbooksButton districts={districts} />
+          </div>
         ) : null}
       </div>
 

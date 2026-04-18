@@ -1,0 +1,575 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, Lock, Undo2, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+
+export interface AssignVolunteer {
+  id: string;
+  full_name: string | null;
+  email: string;
+  availability: string;
+  total_time_budget_minutes: number;
+  speed_rating: "slow" | "medium" | "fast";
+  currentLoadMinutes: number;
+  currentWalkbookCount: number;
+  currentDoors: number;
+}
+
+export interface AssignWalkbook {
+  id: string;
+  name: string;
+  district_id: string;
+  household_count: number;
+  estimated_duration_minutes: number | null;
+  target_duration_minutes: number | null;
+  status: string;
+  kind: string;
+  centroid_lat: number | null;
+  centroid_lng: number | null;
+}
+
+interface Props {
+  userId: string;
+  districts: Array<{ id: string; name: string; slug: string }>;
+  initialDistrictId: string | null;
+  walkbooks: AssignWalkbook[];
+  unassignedWalkbookIds: string[];
+  activeAssignmentByWalkbook: Record<string, { user_id: string }>;
+  volunteers: AssignVolunteer[];
+}
+
+const SPEED_FACTOR: Record<AssignVolunteer["speed_rating"], number> = {
+  slow: 0.85,
+  medium: 1.0,
+  fast: 1.2,
+};
+
+interface PendingChange {
+  walkbookId: string;
+  userId: string | null;
+  previousUserId: string | null;
+}
+
+export function AssignWalkbooksView(props: Props) {
+  const router = useRouter();
+  const [districtId, setDistrictId] = useState(props.initialDistrictId ?? "");
+  const [filter, setFilter] = useState<"unassigned" | "all">("unassigned");
+  const [sort, setSort] = useState<"duration" | "doors" | "name">("duration");
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [pending, setPending] = useState<Map<string, string | null>>(new Map());
+  const [undoStack, setUndoStack] = useState<PendingChange[][]>([]);
+  const [lockState, setLockState] = useState<"checking" | "held" | "blocked" | "released">("checking");
+  const [lockHolder, setLockHolder] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notes, setNotes] = useState("");
+
+  // Initial lock claim + heartbeat every 5 minutes.
+  useEffect(() => {
+    if (!districtId) return;
+    let alive = true;
+    async function claim(force = false) {
+      try {
+        const res = await fetch("/api/walkbooks/assign/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ districtId, force }),
+        });
+        const body = await res.json();
+        if (!alive) return;
+        if (res.status === 409) {
+          setLockState("blocked");
+          setLockHolder(body.heldBy);
+          return;
+        }
+        if (!res.ok) {
+          setLockState("released");
+          setError(body.error ?? `${res.status}`);
+          return;
+        }
+        setLockState("held");
+      } catch (e) {
+        if (alive) setError((e as Error).message);
+      }
+    }
+    claim();
+    const handle = window.setInterval(() => claim(), 5 * 60_000);
+    const unload = () => {
+      navigator.sendBeacon?.(
+        `/api/walkbooks/assign/session?districtId=${encodeURIComponent(districtId)}`,
+      );
+    };
+    window.addEventListener("beforeunload", unload);
+    return () => {
+      alive = false;
+      window.clearInterval(handle);
+      window.removeEventListener("beforeunload", unload);
+      fetch(
+        `/api/walkbooks/assign/session?districtId=${encodeURIComponent(districtId)}`,
+        { method: "DELETE" },
+      ).catch(() => undefined);
+    };
+  }, [districtId]);
+
+  async function takeOver() {
+    setLockState("checking");
+    const res = await fetch("/api/walkbooks/assign/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ districtId, force: true }),
+    });
+    if (res.ok) setLockState("held");
+    else setLockState("blocked");
+  }
+
+  // Filter + sort walkbooks for display.
+  const filteredWalkbooks = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let list = props.walkbooks.filter((w) => w.district_id === districtId);
+    if (filter === "unassigned") {
+      list = list.filter((w) => {
+        const pendingFor = pending.get(w.id);
+        if (pendingFor !== undefined) return pendingFor === null;
+        return !props.activeAssignmentByWalkbook[w.id];
+      });
+    }
+    if (q) list = list.filter((w) => w.name.toLowerCase().includes(q));
+    list = [...list].sort((a, b) => {
+      if (sort === "name") return a.name.localeCompare(b.name);
+      if (sort === "doors") return b.household_count - a.household_count;
+      // duration desc
+      return (
+        (b.estimated_duration_minutes ?? b.target_duration_minutes ?? 0) -
+        (a.estimated_duration_minutes ?? a.target_duration_minutes ?? 0)
+      );
+    });
+    return list;
+  }, [props.walkbooks, props.activeAssignmentByWalkbook, filter, sort, search, districtId, pending]);
+
+  // Effective user on a walkbook: pending > original active > null.
+  function assigneeFor(wbId: string): string | null {
+    if (pending.has(wbId)) return pending.get(wbId) ?? null;
+    return props.activeAssignmentByWalkbook[wbId]?.user_id ?? null;
+  }
+
+  // Live volunteer load including pending changes.
+  const liveVolunteerLoad = useMemo(() => {
+    const base = new Map(
+      props.volunteers.map((v) => [v.id, { minutes: v.currentLoadMinutes, count: v.currentWalkbookCount, doors: v.currentDoors }]),
+    );
+    for (const w of props.walkbooks) {
+      const original = props.activeAssignmentByWalkbook[w.id]?.user_id ?? null;
+      const next = pending.has(w.id) ? pending.get(w.id) ?? null : original;
+      if (original === next) continue;
+      const minutes = w.estimated_duration_minutes ?? w.target_duration_minutes ?? 0;
+      if (original) {
+        const e = base.get(original);
+        if (e) {
+          e.minutes -= minutes;
+          e.count -= 1;
+          e.doors -= w.household_count;
+        }
+      }
+      if (next) {
+        const e = base.get(next);
+        if (e) {
+          e.minutes += minutes;
+          e.count += 1;
+          e.doors += w.household_count;
+        }
+      }
+    }
+    return base;
+  }, [props.volunteers, props.walkbooks, props.activeAssignmentByWalkbook, pending]);
+
+  const selectedMinutes = useMemo(() => {
+    let total = 0;
+    let doors = 0;
+    for (const id of selected) {
+      const w = props.walkbooks.find((x) => x.id === id);
+      if (!w) continue;
+      total += w.estimated_duration_minutes ?? w.target_duration_minutes ?? 0;
+      doors += w.household_count;
+    }
+    return { total, doors };
+  }, [selected, props.walkbooks]);
+
+  function toggleSelected(id: string) {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelected(next);
+  }
+
+  function assignSelectedTo(userId: string) {
+    if (selected.size === 0) return;
+    // Overload check (soft warning).
+    const vol = props.volunteers.find((v) => v.id === userId);
+    if (vol) {
+      const factor = SPEED_FACTOR[vol.speed_rating];
+      const capacity = vol.total_time_budget_minutes * factor;
+      const currentMinutes = liveVolunteerLoad.get(userId)?.minutes ?? 0;
+      const newMinutes = currentMinutes + selectedMinutes.total;
+      if (newMinutes > capacity * 1.1) {
+        const pct = Math.round((newMinutes / capacity) * 100);
+        const msg =
+          `This puts ${vol.full_name ?? vol.email} at ${Math.round(newMinutes / 60)}h ${newMinutes % 60}m` +
+          ` (${pct}% of their ${Math.round(capacity / 60)}h effective budget, rating=${vol.speed_rating}). Assign anyway?`;
+        if (!confirm(msg)) return;
+      }
+    }
+    const changes: PendingChange[] = [];
+    const next = new Map(pending);
+    for (const id of selected) {
+      const prev = assigneeFor(id);
+      if (prev === userId) continue;
+      changes.push({ walkbookId: id, userId, previousUserId: prev });
+      next.set(id, userId);
+    }
+    if (changes.length === 0) return;
+    setPending(next);
+    setUndoStack([...undoStack, changes]);
+    setSelected(new Set());
+  }
+
+  function unassignSelected() {
+    if (selected.size === 0) return;
+    const changes: PendingChange[] = [];
+    const next = new Map(pending);
+    for (const id of selected) {
+      const prev = assigneeFor(id);
+      if (prev === null) continue;
+      changes.push({ walkbookId: id, userId: null, previousUserId: prev });
+      next.set(id, null);
+    }
+    if (changes.length === 0) return;
+    setPending(next);
+    setUndoStack([...undoStack, changes]);
+    setSelected(new Set());
+  }
+
+  function undo() {
+    if (undoStack.length === 0) return;
+    const last = undoStack[undoStack.length - 1];
+    const next = new Map(pending);
+    for (const c of last) {
+      // Revert to previousUserId; if that's the original (active row), delete pending entry.
+      const original = props.activeAssignmentByWalkbook[c.walkbookId]?.user_id ?? null;
+      if (c.previousUserId === original) next.delete(c.walkbookId);
+      else next.set(c.walkbookId, c.previousUserId);
+    }
+    setPending(next);
+    setUndoStack(undoStack.slice(0, -1));
+  }
+
+  async function confirmAll() {
+    if (pending.size === 0) {
+      setError("No pending changes.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const assignments: Array<{ walkbookId: string; userId: string | null }> = [];
+      for (const [walkbookId, userId] of pending) {
+        assignments.push({ walkbookId, userId });
+      }
+      const methodSet = new Set(assignments.map(() => "manual"));
+      const method = methodSet.size === 1 ? "manual" : "hybrid";
+      const res = await fetch("/api/walkbooks/assign/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          districtId,
+          method,
+          notes: notes.trim() || undefined,
+          assignments,
+        }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? `${res.status}`);
+      router.push(`/admin/walkbooks?assigned=${body.walkbookCount}`);
+      router.refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (props.districts.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed border-border bg-white p-8 text-center text-sm text-muted-foreground">
+        No districts under the active client. Create a district first.
+      </div>
+    );
+  }
+
+  if (lockState === "blocked") {
+    return (
+      <div className="mx-auto max-w-xl space-y-4 rounded-lg border border-crimson/30 bg-crimson/5 p-6">
+        <div className="flex items-center gap-2 text-sm font-semibold text-crimson">
+          <Lock className="h-4 w-4" /> Another admin is currently assigning walkbooks for this district
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Only one admin can hold the assignment lock at a time. You can take over — their pending
+          draft will be discarded.
+        </p>
+        <div className="flex gap-2">
+          <Button onClick={takeOver} variant="accent">
+            Take over
+          </Button>
+          <Link href="/admin/walkbooks" className="inline-flex items-center rounded-md border border-navy-200 bg-white px-3 py-1.5 text-sm">
+            Back to walkbooks
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-4">
+        <Link
+          href="/admin/walkbooks"
+          className="inline-flex items-center gap-1 text-sm text-navy-700"
+        >
+          <ArrowLeft className="h-4 w-4" /> Walkbooks
+        </Link>
+        {props.districts.length > 1 ? (
+          <select
+            value={districtId}
+            onChange={(e) => setDistrictId(e.target.value)}
+            className="rounded-md border border-navy-200 bg-white px-2 py-1 text-sm"
+          >
+            {props.districts.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        ) : null}
+      </div>
+
+      <div>
+        <h1 className="font-serif text-2xl font-semibold text-navy-900">Assign walkbooks</h1>
+        <p className="text-sm text-muted-foreground">
+          Distribute work across the knocker roster. Session-locked — only one admin at a time.
+        </p>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        {/* LEFT: unassigned walkbooks */}
+        <div className="flex max-h-[70vh] flex-col rounded-lg border border-border bg-white">
+          <div className="space-y-2 border-b border-border p-3">
+            <div className="flex items-center gap-2">
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search walkbooks"
+                className="flex-1 rounded border border-navy-200 px-2 py-1 text-sm"
+              />
+              <select
+                value={sort}
+                onChange={(e) => setSort(e.target.value as typeof sort)}
+                className="rounded border border-navy-200 px-2 py-1 text-sm"
+              >
+                <option value="duration">By duration</option>
+                <option value="doors">By doors</option>
+                <option value="name">By name</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => setFilter("unassigned")}
+                className={`rounded-full border px-2 py-0.5 ${filter === "unassigned" ? "border-navy-900 bg-navy-900 text-white" : "border-navy-200 bg-white text-navy-700"}`}
+              >
+                Unassigned
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilter("all")}
+                className={`rounded-full border px-2 py-0.5 ${filter === "all" ? "border-navy-900 bg-navy-900 text-white" : "border-navy-200 bg-white text-navy-700"}`}
+              >
+                All
+              </button>
+            </div>
+          </div>
+          <ul className="flex-1 divide-y divide-border overflow-auto">
+            {filteredWalkbooks.map((w) => {
+              const checked = selected.has(w.id);
+              const assignee = assigneeFor(w.id);
+              const pendingMarker = pending.has(w.id);
+              return (
+                <li key={w.id} className={`flex items-center gap-2 p-2 text-sm ${checked ? "bg-navy-50" : ""}`}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleSelected(w.id)}
+                    className="flex-none"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium text-navy-900">{w.name}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {w.household_count} doors · ~
+                      {w.estimated_duration_minutes ?? w.target_duration_minutes ?? "?"}m
+                      {assignee ? (
+                        <>
+                          {" · "}
+                          <span className={pendingMarker ? "text-amber-700" : ""}>
+                            → {props.volunteers.find((v) => v.id === assignee)?.full_name ?? "knocker"}
+                            {pendingMarker ? " (pending)" : ""}
+                          </span>
+                        </>
+                      ) : null}
+                    </p>
+                  </div>
+                </li>
+              );
+            })}
+            {filteredWalkbooks.length === 0 ? (
+              <li className="p-6 text-center text-xs text-muted-foreground">
+                No walkbooks match.
+              </li>
+            ) : null}
+          </ul>
+          <div className="border-t border-border bg-navy-50/40 p-2 text-xs">
+            {selected.size > 0 ? (
+              <div className="flex items-center justify-between gap-2">
+                <span>
+                  <strong>{selected.size}</strong> selected · {selectedMinutes.doors} doors ·{" "}
+                  {Math.floor(selectedMinutes.total / 60)}h {selectedMinutes.total % 60}m
+                </span>
+                <button
+                  type="button"
+                  onClick={unassignSelected}
+                  className="text-navy-700 underline"
+                >
+                  Unassign
+                </button>
+              </div>
+            ) : (
+              <span className="text-muted-foreground">Check walkbooks to assign</span>
+            )}
+          </div>
+        </div>
+
+        {/* RIGHT: volunteer roster */}
+        <div className="flex max-h-[70vh] flex-col rounded-lg border border-border bg-white">
+          <div className="border-b border-border p-3">
+            <p className="text-xs font-semibold uppercase tracking-widest text-navy-700">
+              Volunteers ({props.volunteers.length})
+            </p>
+          </div>
+          <ul className="flex-1 divide-y divide-border overflow-auto">
+            {props.volunteers.map((v) => {
+              const load = liveVolunteerLoad.get(v.id) ?? {
+                minutes: v.currentLoadMinutes,
+                count: v.currentWalkbookCount,
+                doors: v.currentDoors,
+              };
+              const capacity = v.total_time_budget_minutes * SPEED_FACTOR[v.speed_rating];
+              const pct = capacity > 0 ? (load.minutes / capacity) * 100 : 0;
+              const barColor = pct > 110 ? "bg-crimson" : pct > 90 ? "bg-amber-500" : "bg-emerald-500";
+              const canAssign =
+                selected.size > 0 &&
+                (v.availability === "available" || v.availability === "out_in_field") &&
+                lockState === "held";
+              return (
+                <li key={v.id} className="p-3">
+                  <button
+                    type="button"
+                    disabled={!canAssign}
+                    onClick={() => assignSelectedTo(v.id)}
+                    className={`w-full rounded-md border p-2 text-left transition ${
+                      canAssign
+                        ? "border-navy-200 bg-white hover:border-navy-400 hover:bg-navy-50"
+                        : "border-border bg-navy-50/30 cursor-default"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-navy-900">
+                        {v.full_name ?? v.email}
+                      </p>
+                      <Badge variant={v.availability === "available" ? "success" : "secondary"}>
+                        {v.availability}
+                      </Badge>
+                    </div>
+                    <div className="mt-2">
+                      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                        <span>
+                          {Math.floor(load.minutes / 60)}h {load.minutes % 60}m of{" "}
+                          {Math.round(capacity / 60)}h
+                        </span>
+                        <span>{Math.round(pct)}%</span>
+                      </div>
+                      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-navy-100">
+                        <div
+                          className={`h-full transition-all ${barColor}`}
+                          style={{ width: `${Math.min(130, pct)}%` }}
+                        />
+                      </div>
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {load.count} walkbooks · {load.doors} doors · pace {v.speed_rating}
+                      </p>
+                    </div>
+                  </button>
+                </li>
+              );
+            })}
+            {props.volunteers.length === 0 ? (
+              <li className="p-6 text-center text-xs text-muted-foreground">
+                No knockers for this client yet. Invite them at <Link href="/admin/users" className="underline">/admin/users</Link>.
+              </li>
+            ) : null}
+          </ul>
+        </div>
+      </div>
+
+      {/* Action bar */}
+      <div className="sticky bottom-0 mt-4 flex items-center justify-between gap-3 rounded-lg border border-border bg-white p-3 shadow">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={undo}
+            disabled={undoStack.length === 0 || busy}
+            className="inline-flex items-center gap-1 rounded-md border border-navy-200 bg-white px-3 py-1.5 text-xs text-navy-700 hover:bg-navy-50 disabled:opacity-40"
+          >
+            <Undo2 className="h-3 w-3" /> Undo ({undoStack.length})
+          </button>
+          <input
+            type="text"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Batch notes (optional)"
+            className="rounded border border-navy-200 px-2 py-1 text-xs"
+            style={{ width: 260 }}
+          />
+        </div>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          {pending.size > 0 ? (
+            <span className="flex items-center gap-1 text-navy-900">
+              <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+              {pending.size} pending change{pending.size === 1 ? "" : "s"}
+            </span>
+          ) : null}
+          <Button onClick={confirmAll} disabled={pending.size === 0 || busy} variant="accent">
+            <CheckCircle2 className="mr-1.5 h-4 w-4" />
+            {busy ? "Confirming…" : "Confirm & Notify"}
+          </Button>
+        </div>
+      </div>
+
+      {error ? (
+        <p className="rounded bg-crimson/10 px-3 py-2 text-xs text-crimson">{error}</p>
+      ) : null}
+    </div>
+  );
+}

@@ -7,18 +7,30 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
+const HOUR_OPTIONS = [4, 8, 12, 20, 40];
+const SPEED_OPTIONS: Array<{
+  key: "slow" | "medium" | "fast";
+  label: string;
+  hint: string;
+}> = [
+  { key: "slow", label: "Slow", hint: "Methodical, longer conversations" },
+  { key: "medium", label: "Medium", hint: "Typical canvasser pace" },
+  { key: "fast", label: "Fast", hint: "Experienced, brisk" },
+];
+
 export function SetPasswordForm() {
   const router = useRouter();
   const supabase = getSupabaseBrowserClient();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [totalHours, setTotalHours] = useState(8);
+  const [speed, setSpeed] = useState<"slow" | "medium" | "fast">("medium");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [sessionReady, setSessionReady] = useState<"checking" | "yes" | "no">("checking");
   const [email, setEmail] = useState<string | null>(null);
+  const [isKnocker, setIsKnocker] = useState(false);
 
-  // Supabase's SSR client auto-processes access_token from the URL hash on
-  // load. We just wait for the session to be visible, then ask for a password.
   useEffect(() => {
     let cancelled = false;
     async function check() {
@@ -27,8 +39,13 @@ export function SetPasswordForm() {
       if (data.session) {
         setSessionReady("yes");
         setEmail(data.session.user.email ?? null);
+        const { data: profile } = await supabase
+          .from("users")
+          .select("role")
+          .eq("id", data.session.user.id)
+          .maybeSingle();
+        setIsKnocker((profile as { role?: string } | null)?.role === "knocker");
       } else {
-        // Give the hash processor a beat, then retry.
         setTimeout(async () => {
           if (cancelled) return;
           const { data: retry } = await supabase.auth.getSession();
@@ -72,6 +89,19 @@ export function SetPasswordForm() {
       setSubmitting(false);
       return;
     }
+
+    // Persist profile fields (only meaningful for knockers, but harmless for
+    // admins — they get sensible defaults anyway).
+    if (isKnocker) {
+      await supabase
+        .from("users")
+        .update({
+          total_time_budget_minutes: totalHours * 60,
+          speed_rating: speed,
+        })
+        .eq("id", data.user.id);
+    }
+
     const { data: profile } = await supabase
       .from("users")
       .select("role")
@@ -104,43 +134,120 @@ export function SetPasswordForm() {
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-4">
+    <form onSubmit={onSubmit} className="space-y-5">
       {email ? (
         <p className="text-xs text-muted-foreground">
-          Setting password for <strong>{email}</strong>
+          Setting up <strong>{email}</strong>
         </p>
       ) : null}
-      <div className="space-y-1">
-        <label htmlFor="pw" className="text-sm font-medium text-navy-900">
-          New password
-        </label>
-        <Input
-          id="pw"
-          type="password"
-          value={password}
-          autoComplete="new-password"
-          minLength={8}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-        />
+
+      <div className="space-y-3">
+        <p className="text-xs font-semibold uppercase tracking-widest text-navy-700">Password</p>
+        <div className="space-y-1">
+          <label htmlFor="pw" className="text-sm font-medium text-navy-900">
+            New password
+          </label>
+          <Input
+            id="pw"
+            type="password"
+            value={password}
+            autoComplete="new-password"
+            minLength={8}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+        </div>
+        <div className="space-y-1">
+          <label htmlFor="pw2" className="text-sm font-medium text-navy-900">
+            Confirm password
+          </label>
+          <Input
+            id="pw2"
+            type="password"
+            value={confirm}
+            autoComplete="new-password"
+            minLength={8}
+            onChange={(e) => setConfirm(e.target.value)}
+            required
+          />
+        </div>
       </div>
-      <div className="space-y-1">
-        <label htmlFor="pw2" className="text-sm font-medium text-navy-900">
-          Confirm password
-        </label>
-        <Input
-          id="pw2"
-          type="password"
-          value={confirm}
-          autoComplete="new-password"
-          minLength={8}
-          onChange={(e) => setConfirm(e.target.value)}
-          required
-        />
-      </div>
+
+      {isKnocker ? (
+        <>
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-widest text-navy-700">
+              Total hours you can canvass
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Across the whole campaign. Your admin uses this to balance assignments.
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {HOUR_OPTIONS.map((h) => (
+                <button
+                  key={h}
+                  type="button"
+                  onClick={() => setTotalHours(h)}
+                  className={`rounded-full border px-3 py-1 text-xs font-medium ${
+                    totalHours === h
+                      ? "border-navy-900 bg-navy-900 text-white"
+                      : "border-navy-200 bg-white text-navy-700"
+                  }`}
+                >
+                  {h}h
+                </button>
+              ))}
+              <input
+                type="number"
+                min={1}
+                max={200}
+                value={totalHours}
+                onChange={(e) => setTotalHours(Number(e.target.value))}
+                className="w-16 rounded-full border border-navy-200 px-2 py-1 text-center text-xs"
+                aria-label="Custom hours"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-widest text-navy-700">
+              Pace
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Be honest — we calibrate walkbook time estimates to your pace.
+            </p>
+            <div className="space-y-1.5">
+              {SPEED_OPTIONS.map((opt) => (
+                <label
+                  key={opt.key}
+                  className={`flex cursor-pointer items-start gap-2 rounded-md border p-2 text-sm ${
+                    speed === opt.key
+                      ? "border-navy-900 bg-navy-50"
+                      : "border-navy-200 bg-white hover:border-navy-300"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="speed"
+                    value={opt.key}
+                    checked={speed === opt.key}
+                    onChange={() => setSpeed(opt.key)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="block font-medium text-navy-900">{opt.label}</span>
+                    <span className="block text-xs text-muted-foreground">{opt.hint}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </>
+      ) : null}
+
       {error ? <p className="text-sm text-crimson">{error}</p> : null}
       <Button type="submit" disabled={submitting} className="w-full" size="lg">
-        {submitting ? "Saving…" : "Save password & continue"}
+        {submitting ? "Saving…" : "Save & continue"}
       </Button>
     </form>
   );
