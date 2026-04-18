@@ -30,7 +30,7 @@ jobs:
             https://door-knocking.vercel.app/api/diag \
             | jq '.' > .diag/latest.json
 
-      - name: Fetch Vercel deploy status
+      - name: Fetch Vercel deploy status + build logs on failure
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
@@ -40,16 +40,31 @@ jobs:
             echo '{"skipped":"no VERCEL_TOKEN or VERCEL_PROJECT_ID"}' > .diag/vercel.json
             exit 0
           fi
-          curl -fsS --max-time 20 \
+          raw=$(curl -fsS --max-time 20 \
             -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "https://api.vercel.com/v6/deployments?projectId=$VERCEL_PROJECT_ID&limit=1" \
-            | jq '{
-                state: .deployments[0].state,
-                sha: (.deployments[0].meta.githubCommitSha // "" | .[0:7]),
-                url: .deployments[0].url,
-                created_at: (.deployments[0].created | todate),
-                target: .deployments[0].target
-              }' > .diag/vercel.json
+            "https://api.vercel.com/v6/deployments?projectId=$VERCEL_PROJECT_ID&limit=1")
+          echo "$raw" | jq '{
+              state: .deployments[0].state,
+              sha: (.deployments[0].meta.githubCommitSha // "" | .[0:7]),
+              url: .deployments[0].url,
+              uid: .deployments[0].uid,
+              created_at: (.deployments[0].created | todate),
+              target: .deployments[0].target
+            }' > .diag/vercel.json
+
+          state=$(jq -r '.state // empty' .diag/vercel.json)
+          uid=$(jq -r '.uid // empty' .diag/vercel.json)
+          if [ "$state" = "ERROR" ] && [ -n "$uid" ]; then
+            echo "Deployment $uid is ERROR — pulling build events…"
+            curl -fsS --max-time 30 \
+              -H "Authorization: Bearer $VERCEL_TOKEN" \
+              "https://api.vercel.com/v3/deployments/$uid/events?builds=1&follow=0&limit=2000" \
+              | jq -r '.[]? | "\(.date // "?") [\(.type // "log")] \(.payload.text // .text // "")"' \
+              > .diag/vercel-build.log || true
+            echo "wrote $(wc -l < .diag/vercel-build.log 2>/dev/null || echo 0) log lines"
+          else
+            rm -f .diag/vercel-build.log
+          fi
 
       - name: Summarize
         id: summarize
@@ -119,8 +134,12 @@ jobs:
           set -euo pipefail
           git config user.email "diag-bot@users.noreply.github.com"
           git config user.name  "diag-bot"
-          git add .diag/latest.json .diag/summary.md .diag/vercel.json 2>/dev/null || true
           git add .diag/latest.json .diag/summary.md
+          git add .diag/vercel.json .diag/vercel-build.log 2>/dev/null || true
+          # Remove tracked build log if we deleted it (state is no longer ERROR)
+          if [ ! -f .diag/vercel-build.log ] && git ls-files --error-unmatch .diag/vercel-build.log >/dev/null 2>&1; then
+            git rm .diag/vercel-build.log
+          fi
           if git diff --cached --quiet; then
             echo "no diag changes"
             exit 0
@@ -136,12 +155,17 @@ jobs:
         run: |
           set -euo pipefail
           title="diag: infra red"
+          tail_logs=""
+          if [ -f .diag/vercel-build.log ]; then
+            tail_logs=$(printf '\n\n### Vercel build log (last 40 lines)\n```\n%s\n```\n\nFull log: [`.diag/vercel-build.log`](../blob/HEAD/.diag/vercel-build.log)' \
+              "$(tail -n 40 .diag/vercel-build.log)")
+          fi
           body=$(cat <<EOF
           **$FAILED check(s) failing** as of $(date -u +%Y-%m-%dT%H:%MZ)
 
           $(cat .diag/failures.md)
 
-          Full snapshot: [\`.diag/summary.md\`](../blob/HEAD/.diag/summary.md).
+          Full snapshot: [\`.diag/summary.md\`](../blob/HEAD/.diag/summary.md).$tail_logs
 
           This issue auto-closes on the next green diag run.
           EOF
