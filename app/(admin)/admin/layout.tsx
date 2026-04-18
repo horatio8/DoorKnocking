@@ -18,6 +18,7 @@ import {
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { ClientSwitcher } from "@/components/admin/client-switcher";
+import { GlobalSearch } from "@/components/admin/global-search";
 import { LogoutButton } from "@/components/knocker/logout-button";
 import { getActiveClient } from "@/lib/clients/active";
 
@@ -92,9 +93,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       </aside>
       <div className="flex flex-1 flex-col">
         <header className="flex items-center justify-between border-b border-border bg-white px-5 py-3">
-          <div>
-            <p className="text-[10px] uppercase tracking-widest text-navy-500">Client</p>
-            <ClientSwitcher activeClientId={client?.id ?? null} clients={clients} />
+          <div className="flex items-center gap-4">
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-navy-500">Client</p>
+              <ClientSwitcher activeClientId={client?.id ?? null} clients={clients} />
+            </div>
+            <GlobalSearch />
           </div>
           <div className="flex items-center gap-2">
             {session.user.role === "super_admin" && (
