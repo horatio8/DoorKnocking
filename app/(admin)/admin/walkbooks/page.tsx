@@ -193,6 +193,12 @@ export default async function AdminWalkbooks() {
         {districts.length > 0 ? (
           <div className="flex flex-wrap items-center gap-2">
             <Link
+              href="/admin/walkbooks/batches"
+              className="text-xs text-muted-foreground underline"
+            >
+              Batch history
+            </Link>
+            <Link
               href="/admin/walkbooks/assign"
               className="inline-flex items-center rounded-md border border-navy-200 bg-white px-3 py-1.5 text-sm font-medium text-navy-900 hover:bg-navy-50"
             >

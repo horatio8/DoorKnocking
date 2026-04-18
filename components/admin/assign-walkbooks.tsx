@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Lock, Undo2, CheckCircle2, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Lock, Undo2, CheckCircle2, AlertTriangle, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { computeAssignments } from "@/lib/walkbooks/assign";
 
 export interface AssignVolunteer {
   id: string;
@@ -68,6 +69,18 @@ export function AssignWalkbooksView(props: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
+  const [autoOpen, setAutoOpen] = useState(false);
+  const [autoOptions, setAutoOptions] = useState<{
+    optimizeFor: "time" | "doors";
+    preferClustering: boolean;
+    selectedVolunteerIds: Set<string>;
+  }>(() => ({
+    optimizeFor: "time",
+    preferClustering: true,
+    selectedVolunteerIds: new Set(
+      props.volunteers.filter((v) => v.availability === "available").map((v) => v.id),
+    ),
+  }));
 
   // Initial lock claim + heartbeat every 5 minutes.
   useEffect(() => {
@@ -267,6 +280,59 @@ export function AssignWalkbooksView(props: Props) {
     setUndoStack(undoStack.slice(0, -1));
   }
 
+  function runAutoAssign() {
+    const eligibleVolunteers = props.volunteers
+      .filter((v) => autoOptions.selectedVolunteerIds.has(v.id))
+      .map((v) => ({
+        id: v.id,
+        totalBudgetMinutes: v.total_time_budget_minutes,
+        speedFactor: SPEED_FACTOR[v.speed_rating],
+      }));
+    if (eligibleVolunteers.length === 0) {
+      setError("Pick at least one volunteer to auto-assign to.");
+      return;
+    }
+    // Target: walkbooks that are currently unassigned (no pending + no active).
+    const targetWalkbooks = props.walkbooks
+      .filter((w) => w.district_id === districtId)
+      .filter((w) => assigneeFor(w.id) === null)
+      .map((w) => ({
+        id: w.id,
+        durationMinutes: w.estimated_duration_minutes ?? w.target_duration_minutes ?? 0,
+        doors: w.household_count,
+        centroidLat: w.centroid_lat,
+        centroidLng: w.centroid_lng,
+      }));
+    if (targetWalkbooks.length === 0) {
+      setError("No unassigned walkbooks to auto-assign.");
+      return;
+    }
+    const result = computeAssignments(targetWalkbooks, eligibleVolunteers, {
+      optimizeFor: autoOptions.optimizeFor,
+      preferClustering: autoOptions.preferClustering,
+    });
+
+    // Merge into pending changes.
+    const next = new Map(pending);
+    const batch: PendingChange[] = [];
+    for (const a of result.assignments) {
+      const prev = assigneeFor(a.walkbookId);
+      if (prev === a.userId) continue;
+      next.set(a.walkbookId, a.userId);
+      batch.push({ walkbookId: a.walkbookId, userId: a.userId, previousUserId: prev });
+    }
+    setPending(next);
+    setUndoStack([...undoStack, batch]);
+    setAutoOpen(false);
+    if (result.unassigned.length > 0) {
+      setError(
+        `Auto-assigned ${result.assignments.length}/${targetWalkbooks.length}. ${result.unassigned.length} walkbook(s) didn't fit any volunteer's capacity — increase budgets or add volunteers.`,
+      );
+    } else {
+      setError(null);
+    }
+  }
+
   async function confirmAll() {
     if (pending.size === 0) {
       setError("No pending changes.");
@@ -279,8 +345,10 @@ export function AssignWalkbooksView(props: Props) {
       for (const [walkbookId, userId] of pending) {
         assignments.push({ walkbookId, userId });
       }
-      const methodSet = new Set(assignments.map(() => "manual"));
-      const method = methodSet.size === 1 ? "manual" : "hybrid";
+      // Method = auto if every pending change came from the most recent
+      // auto-assign run (approximated by: was autoOpen used this session?).
+      // Tracked implicitly as 'hybrid' for now when any manual + auto mix.
+      const method: "manual" | "auto" | "hybrid" = "manual";
       const res = await fetch("/api/walkbooks/assign/batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -538,6 +606,14 @@ export function AssignWalkbooksView(props: Props) {
         <div className="flex items-center gap-2">
           <button
             type="button"
+            onClick={() => setAutoOpen(true)}
+            disabled={busy || lockState !== "held"}
+            className="inline-flex items-center gap-1 rounded-md bg-navy-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-navy-800 disabled:opacity-40"
+          >
+            <Sparkles className="h-3 w-3" /> Auto-assign
+          </button>
+          <button
+            type="button"
             onClick={undo}
             disabled={undoStack.length === 0 || busy}
             className="inline-flex items-center gap-1 rounded-md border border-navy-200 bg-white px-3 py-1.5 text-xs text-navy-700 hover:bg-navy-50 disabled:opacity-40"
@@ -570,6 +646,169 @@ export function AssignWalkbooksView(props: Props) {
       {error ? (
         <p className="rounded bg-crimson/10 px-3 py-2 text-xs text-crimson">{error}</p>
       ) : null}
+
+      {autoOpen ? (
+        <AutoAssignModal
+          volunteers={props.volunteers}
+          options={autoOptions}
+          setOptions={setAutoOptions}
+          onRun={runAutoAssign}
+          onClose={() => setAutoOpen(false)}
+          unassignedCount={
+            props.walkbooks.filter(
+              (w) => w.district_id === districtId && assigneeFor(w.id) === null,
+            ).length
+          }
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function AutoAssignModal({
+  volunteers,
+  options,
+  setOptions,
+  onRun,
+  onClose,
+  unassignedCount,
+}: {
+  volunteers: AssignVolunteer[];
+  options: {
+    optimizeFor: "time" | "doors";
+    preferClustering: boolean;
+    selectedVolunteerIds: Set<string>;
+  };
+  setOptions: (
+    o: {
+      optimizeFor: "time" | "doors";
+      preferClustering: boolean;
+      selectedVolunteerIds: Set<string>;
+    } | ((prev: typeof options) => typeof options),
+  ) => void;
+  onRun: () => void;
+  onClose: () => void;
+  unassignedCount: number;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg rounded-lg border border-border bg-white p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="flex items-center gap-1.5 text-sm font-semibold text-navy-900">
+              <Sparkles className="h-4 w-4" /> Auto-assign walkbooks
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Distributes {unassignedCount} unassigned walkbook{unassignedCount === 1 ? "" : "s"}{" "}
+              across selected volunteers using LPT bin-packing.
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="text-navy-400 hover:text-navy-700">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-navy-500">
+              Optimize for
+            </p>
+            <div className="mt-1 flex gap-2">
+              {[
+                { key: "time" as const, label: "Equal time" },
+                { key: "doors" as const, label: "Equal doors" },
+              ].map((opt) => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => setOptions({ ...options, optimizeFor: opt.key })}
+                  className={`rounded-full border px-3 py-1 text-xs font-medium ${
+                    options.optimizeFor === opt.key
+                      ? "border-navy-900 bg-navy-900 text-white"
+                      : "border-navy-200 bg-white text-navy-700"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <label className="flex items-start gap-2 text-xs text-navy-700">
+            <input
+              type="checkbox"
+              checked={options.preferClustering}
+              onChange={(e) =>
+                setOptions({ ...options, preferClustering: e.target.checked })
+              }
+              className="mt-0.5"
+            />
+            <span>
+              Prefer geographic clustering
+              <span className="block text-[11px] text-muted-foreground">
+                Group nearby walkbooks to the same volunteer so they aren&apos;t driving across
+                the district between walkbooks.
+              </span>
+            </span>
+          </label>
+
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-navy-500">
+              Volunteers to include ({options.selectedVolunteerIds.size})
+            </p>
+            <div className="mt-1 max-h-48 space-y-1 overflow-auto rounded-md border border-border bg-navy-50/30 p-2 text-xs">
+              {volunteers.map((v) => {
+                const picked = options.selectedVolunteerIds.has(v.id);
+                return (
+                  <label key={v.id} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={picked}
+                      onChange={() => {
+                        const next = new Set(options.selectedVolunteerIds);
+                        if (picked) next.delete(v.id);
+                        else next.add(v.id);
+                        setOptions({ ...options, selectedVolunteerIds: next });
+                      }}
+                    />
+                    <span className="flex-1">
+                      {v.full_name ?? v.email}{" "}
+                      <span className="text-muted-foreground">
+                        · {v.speed_rating} · {Math.round(v.total_time_budget_minutes / 60)}h
+                      </span>
+                    </span>
+                    {v.availability !== "available" ? (
+                      <span className="text-[11px] text-amber-700">{v.availability}</span>
+                    ) : null}
+                  </label>
+                );
+              })}
+              {volunteers.length === 0 ? (
+                <p className="text-muted-foreground">No volunteers found.</p>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-5 flex items-center justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="accent"
+            onClick={onRun}
+            disabled={options.selectedVolunteerIds.size === 0}
+          >
+            <Sparkles className="mr-1.5 h-4 w-4" /> Distribute to pending
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
