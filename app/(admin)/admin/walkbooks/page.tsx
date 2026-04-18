@@ -54,6 +54,7 @@ export default async function AdminWalkbooks() {
     household_count: number;
     status: string;
     kind: string;
+    travel_mode: string;
     estimated_duration_minutes: number | null;
     target_duration_minutes: number | null;
     created_at: string;
@@ -63,7 +64,7 @@ export default async function AdminWalkbooks() {
     const { data, error } = await supabase
       .from("walkbooks")
       .select(
-        "id, name, district_id, household_count, status, kind, estimated_duration_minutes, target_duration_minutes, created_at",
+        "id, name, district_id, household_count, status, kind, travel_mode, estimated_duration_minutes, target_duration_minutes, created_at",
       )
       .in("district_id", districtIds)
       .order("created_at", { ascending: false });
@@ -167,10 +168,18 @@ export default async function AdminWalkbooks() {
   const list = walkbookRows;
   const total = list.length;
   const totalDoors = list.reduce((sum, w) => sum + (w.household_count ?? 0), 0);
-  const totalEstimatedMinutes = list.reduce(
-    (sum, w) => sum + (w.estimated_duration_minutes ?? w.target_duration_minutes ?? 0),
-    0,
-  );
+  const walkingMinutes = list
+    .filter((w) => w.travel_mode !== "driving")
+    .reduce((sum, w) => sum + (w.estimated_duration_minutes ?? w.target_duration_minutes ?? 0), 0);
+  const drivingMinutes = list
+    .filter((w) => w.travel_mode === "driving")
+    .reduce((sum, w) => sum + (w.estimated_duration_minutes ?? w.target_duration_minutes ?? 0), 0);
+  function hm(mins: number): string {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    if (h === 0) return `${m}m`;
+    return `${h}h ${m}m`;
+  }
 
   return (
     <div className="space-y-6">
@@ -202,12 +211,16 @@ export default async function AdminWalkbooks() {
           <span>
             <span className="font-semibold text-navy-900">{totalDoors.toLocaleString()}</span> doors total
           </span>
-          <span>
-            <span className="font-semibold text-navy-900">
-              {Math.round(totalEstimatedMinutes / 60)}h {totalEstimatedMinutes % 60}m
-            </span>{" "}
-            of walking work planned
-          </span>
+          {walkingMinutes > 0 ? (
+            <span>
+              <span className="font-semibold text-navy-900">{hm(walkingMinutes)}</span> walking
+            </span>
+          ) : null}
+          {drivingMinutes > 0 ? (
+            <span>
+              <span className="font-semibold text-navy-900">{hm(drivingMinutes)}</span> driving
+            </span>
+          ) : null}
         </div>
       ) : null}
 
@@ -258,7 +271,11 @@ export default async function AdminWalkbooks() {
 
                 <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
                   <span>{wb.household_count} doors</span>
-                  {est ? <span>~{est}m</span> : null}
+                  {est ? (
+                    <span>
+                      ~{est}m {wb.travel_mode === "driving" ? "driving" : "walking"}
+                    </span>
+                  ) : null}
                   {m.doorsPerHour != null ? <span>{m.doorsPerHour.toFixed(1)} doors/hr</span> : null}
                 </div>
 
