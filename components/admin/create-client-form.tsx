@@ -64,15 +64,18 @@ export function CreateClientForm({ initialOpen = false }: { initialOpen?: boolea
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(form),
     });
+    const body = await res.json().catch(() => ({}));
     setBusy(false);
     if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
       setError(body.error ?? `Failed (${res.status})`);
       return;
     }
     setForm(INITIAL);
     setOpen(false);
-    router.refresh();
+    const next = body.airtable_token_saved && body.district_id
+      ? `/admin/airtable?district=${body.district_id}`
+      : "/admin/settings";
+    router.push(next);
   }
 
   if (!open) return <Button variant="accent" onClick={() => setOpen(true)}>New client</Button>;

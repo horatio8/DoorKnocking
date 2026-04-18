@@ -75,7 +75,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: clientError.message }, { status: 500 });
   }
 
-  const { error: districtError } = await supabase
+  const { data: district, error: districtError } = await supabase
     .from("districts")
     .insert({
       slug: district_slug,
@@ -86,11 +86,13 @@ export async function POST(req: Request) {
       airtable_voters_table_id: airtable_voters_table_id || null,
       timezone: timezone || "UTC",
       client_id: client.id,
-    });
+    })
+    .select()
+    .single();
 
-  if (districtError) {
+  if (districtError || !district) {
     await supabase.from("clients").delete().eq("id", client.id);
-    return NextResponse.json({ error: districtError.message }, { status: 500 });
+    return NextResponse.json({ error: districtError?.message ?? "district insert failed" }, { status: 500 });
   }
 
   if (airtable_token) {
@@ -114,6 +116,8 @@ export async function POST(req: Request) {
     ok: true,
     client_id: client.id,
     client_slug: client.slug,
+    district_id: district.id,
+    airtable_token_saved: Boolean(airtable_token),
     url: `https://${client.slug}.campaignos.com`,
   });
 }
