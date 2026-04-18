@@ -17,9 +17,8 @@ import {
 } from "lucide-react";
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
-import { DistrictSwitcher } from "@/components/admin/district-switcher";
+import { ClientSwitcher } from "@/components/admin/client-switcher";
 import { LogoutButton } from "@/components/knocker/logout-button";
-import type { District } from "@/lib/types";
 import { getActiveClient } from "@/lib/clients/active";
 
 const NAV = [
@@ -50,9 +49,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const supabase = getSupabaseServerClient();
   const client = await getActiveClient();
 
-  const districtQuery = supabase.from("districts").select("*").order("name");
-  if (client) districtQuery.eq("client_id", client.id);
-  const { data: districts } = await districtQuery;
+  const clientsQuery = supabase
+    .from("clients")
+    .select("id, name, slug")
+    .eq("active", true)
+    .order("name");
+  const { data: clientsData } = await clientsQuery;
+  const clients = (clientsData ?? []) as Array<{ id: string; name: string; slug: string }>;
 
   const nav = [...NAV, ...(session.user.role === "super_admin" ? SUPER_NAV : [])];
   const brandLabel = client?.name ?? "Campaign OS";
@@ -90,11 +93,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       <div className="flex flex-1 flex-col">
         <header className="flex items-center justify-between border-b border-border bg-white px-5 py-3">
           <div>
-            <p className="text-[10px] uppercase tracking-widest text-navy-500">District</p>
-            <DistrictSwitcher
-              activeDistrictId={session.user.default_district_id}
-              districts={(districts ?? []) as District[]}
-            />
+            <p className="text-[10px] uppercase tracking-widest text-navy-500">Client</p>
+            <ClientSwitcher activeClientId={client?.id ?? null} clients={clients} />
           </div>
           <div className="flex items-center gap-2">
             {session.user.role === "super_admin" && (

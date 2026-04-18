@@ -1,5 +1,5 @@
 import { cache } from "react";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 export interface ClientBrand {
@@ -18,27 +18,46 @@ export interface ActiveClient {
   active: boolean;
 }
 
-// Resolves the client scoped by the current subdomain / path prefix. Returns
-// null if no client is in context (apex, super-admin console, or unknown
-// slug). React cache() memoises per-request so we only query once per render.
+// Resolves the client scoped by (in order): the subdomain / path prefix, then
+// an explicit active_client_id cookie the admin picked via ClientSwitcher.
+// Returns null if nothing matches. React cache() memoises per-request so we
+// only query once per render.
+//
+// The cookie lookup still goes through RLS on the clients table
+// (has_client_access or is_super_admin), so a stolen cookie can't elevate
+// privilege — worst case, the lookup returns no rows and we fall through.
 export const getActiveClient = cache(async (): Promise<ActiveClient | null> => {
-  const slug = headers().get("x-client-slug");
-  if (!slug) return null;
-
   const supabase = getSupabaseServerClient();
-  const { data, error } = await supabase
-    .from("clients")
-    .select("id, slug, name, brand, contact_email, active")
-    .eq("slug", slug)
-    .maybeSingle();
 
-  if (error) {
-    console.error("getActiveClient: lookup failed", error);
-    return null;
+  const slug = headers().get("x-client-slug");
+  if (slug) {
+    const { data, error } = await supabase
+      .from("clients")
+      .select("id, slug, name, brand, contact_email, active")
+      .eq("slug", slug)
+      .maybeSingle();
+    if (error) {
+      console.error("getActiveClient: slug lookup failed", error);
+    } else if (data && (data as ActiveClient).active) {
+      return data as ActiveClient;
+    }
   }
-  if (!data || !data.active) return null;
 
-  return data as ActiveClient;
+  const cookieValue = cookies().get("active_client_id")?.value;
+  if (cookieValue) {
+    const { data, error } = await supabase
+      .from("clients")
+      .select("id, slug, name, brand, contact_email, active")
+      .eq("id", cookieValue)
+      .maybeSingle();
+    if (error) {
+      console.error("getActiveClient: cookie lookup failed", error);
+    } else if (data && (data as ActiveClient).active) {
+      return data as ActiveClient;
+    }
+  }
+
+  return null;
 });
 
 export function clientBrandCss(brand: ClientBrand | null | undefined): string {
