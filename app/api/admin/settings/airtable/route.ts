@@ -16,10 +16,20 @@ import { verifyToken } from "@/lib/airtable/metadata";
 // clientId override is honoured only for super_admin sessions. All other
 // callers are forced to the client resolved by the current subdomain.
 
-async function resolveTargetClient(req: Request, explicitClientId: string | null) {
+type ResolveResult =
+  | { error: "forbidden" | "no_client" | "client_not_found" }
+  | {
+      session: Awaited<ReturnType<typeof loadSession>> & object;
+      client: { id: string; name: string };
+    };
+
+async function resolveTargetClient(
+  req: Request,
+  explicitClientId: string | null,
+): Promise<ResolveResult> {
   const session = await loadSession();
   if (!session || (session.user.role !== "admin" && session.user.role !== "super_admin")) {
-    return { error: "forbidden" as const };
+    return { error: "forbidden" };
   }
 
   if (explicitClientId && session.user.role === "super_admin") {
@@ -29,12 +39,12 @@ async function resolveTargetClient(req: Request, explicitClientId: string | null
       .select("id, name")
       .eq("id", explicitClientId)
       .maybeSingle();
-    if (!data) return { error: "client_not_found" as const };
+    if (!data) return { error: "client_not_found" };
     return { session, client: { id: data.id as string, name: data.name as string } };
   }
 
   const active = await getActiveClient();
-  if (!active) return { error: "no_client" as const };
+  if (!active) return { error: "no_client" };
   return { session, client: { id: active.id, name: active.name } };
 }
 
