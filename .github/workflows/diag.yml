@@ -1,6 +1,11 @@
 name: diag
 
 on:
+  # Fires the instant Vercel reports a deploy is READY / ERROR /
+  # CANCELED via its GitHub integration's deployment_status event.
+  # Turns the 30-min polling window into ~15s. Schedule stays as a
+  # belt-and-braces liveness probe.
+  deployment_status: {}
   schedule:
     - cron: "7,37 * * * *"
   workflow_dispatch: {}
@@ -11,6 +16,9 @@ concurrency:
 
 jobs:
   snapshot:
+    # For deployment_status triggers, only react to terminal states —
+    # otherwise we'd run for every intermediate pending/in_progress event.
+    if: github.event_name != 'deployment_status' || contains(fromJson('["success","error","failure"]'), github.event.deployment_status.state)
     runs-on: ubuntu-latest
     permissions:
       contents: write
