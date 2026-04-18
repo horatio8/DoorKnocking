@@ -20,6 +20,34 @@ export default async function AdminWalkbooks() {
     .eq("district_id", districtId ?? "")
     .order("created_at", { ascending: false });
 
+  // Efficiency metrics: doors/hour and completion per walkbook. Pull once,
+  // map in memory — keeps the page simple and still correct at this scale.
+  const wbIds = ((walkbooks ?? []) as Array<{ id: string }>).map((w) => w.id);
+  let knocksByWalkbook = new Map<string, Array<{ household_id: string; duration_seconds: number | null }>>();
+  if (wbIds.length > 0) {
+    const { data: events } = await supabase
+      .from("knock_events")
+      .select("walkbook_id, household_id, duration_seconds")
+      .in("walkbook_id", wbIds);
+    for (const e of (events ?? []) as Array<{ walkbook_id: string; household_id: string; duration_seconds: number | null }>) {
+      const list = knocksByWalkbook.get(e.walkbook_id) ?? [];
+      list.push({ household_id: e.household_id, duration_seconds: e.duration_seconds });
+      knocksByWalkbook.set(e.walkbook_id, list);
+    }
+  }
+  function metrics(wbId: string, householdCount: number) {
+    const events = knocksByWalkbook.get(wbId) ?? [];
+    const distinctHouseholds = new Set(events.map((e) => e.household_id));
+    const totalSeconds = events
+      .map((e) => e.duration_seconds)
+      .filter((s): s is number => typeof s === "number" && s > 0)
+      .reduce((a, b) => a + b, 0);
+    const hours = totalSeconds / 3600;
+    const doorsPerHour = hours > 0 ? distinctHouseholds.size / hours : null;
+    const completion = householdCount > 0 ? distinctHouseholds.size / householdCount : 0;
+    return { doorsPerHour, completion, knocks: events.length };
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
@@ -54,6 +82,16 @@ export default async function AdminWalkbooks() {
                 </CardHeader>
                 <CardContent className="text-sm text-muted-foreground">
                   <p>{wb.household_count} households · {wb.status}</p>
+                  {(() => {
+                    const m = metrics(wb.id, wb.household_count);
+                    return (
+                      <p className="text-xs">
+                        {Math.round(m.completion * 100)}% complete
+                        {m.doorsPerHour != null ? ` · ${m.doorsPerHour.toFixed(1)} doors/hr` : ""}
+                        {m.knocks > 0 ? ` · ${m.knocks} knocks` : ""}
+                      </p>
+                    );
+                  })()}
                   <p className="mt-1">
                     {assignedUser?.full_name
                       ? `Assigned to ${assignedUser.full_name}`

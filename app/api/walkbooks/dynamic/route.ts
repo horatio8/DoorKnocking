@@ -48,29 +48,37 @@ export async function POST(req: Request) {
       }
     : DEFAULT_CALIBRATION;
 
-  let query = supabase
+  const { data: households, error } = await supabase
     .from("households")
     .select("id, lat, lng, neighborhood_id, address_line1")
     .eq("district_id", districtId)
     .not("lat", "is", null)
     .not("lng", "is", null);
-
-  if (body.avoidCompleted) {
-    const { data: knocked } = await supabase
-      .from("door_knocks")
-      .select("household_id")
-      .eq("district_id", districtId);
-    const excluded = new Set(((knocked ?? []) as Array<{ household_id: string }>).map((k) => k.household_id));
-    if (excluded.size > 0) query = query.not("id", "in", `(${Array.from(excluded).join(",")})`);
-  }
-
-  const { data: households, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!households || households.length === 0) {
     return NextResponse.json({ error: "no households available" }, { status: 400 });
   }
 
-  const ids = households.map((h) => h.id as string);
+  let filtered = households;
+  if (body.avoidCompleted) {
+    const allIds = households.map((h) => h.id as string);
+    const knockedIds = new Set<string>();
+    const CHUNK = 500;
+    for (let i = 0; i < allIds.length; i += CHUNK) {
+      const slice = allIds.slice(i, i + CHUNK);
+      const { data: knocks } = await supabase
+        .from("knock_events")
+        .select("household_id")
+        .in("household_id", slice);
+      for (const k of (knocks ?? []) as Array<{ household_id: string }>) knockedIds.add(k.household_id);
+    }
+    filtered = households.filter((h) => !knockedIds.has(h.id as string));
+    if (filtered.length === 0) {
+      return NextResponse.json({ error: "every household in this district is already contacted" }, { status: 400 });
+    }
+  }
+
+  const ids = filtered.map((h) => h.id as string);
   const voterCounts = new Map<string, number>();
   {
     const chunk = 500;
@@ -86,7 +94,7 @@ export async function POST(req: Request) {
     }
   }
 
-  const candidates: DynamicCandidate[] = households.map((h) => ({
+  const candidates: DynamicCandidate[] = filtered.map((h) => ({
     id: h.id as string,
     lat: Number(h.lat),
     lng: Number(h.lng),

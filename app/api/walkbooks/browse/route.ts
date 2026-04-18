@@ -91,7 +91,7 @@ export async function GET(req: Request) {
         continue;
       }
       const { data: knocks } = await supabase
-        .from("door_knocks")
+        .from("knock_events")
         .select("household_id")
         .in("household_id", hhIds);
       const unique = new Set((knocks ?? []).map((k: { household_id: string }) => k.household_id));
