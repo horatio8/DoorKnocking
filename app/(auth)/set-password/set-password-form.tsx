@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import type { Session } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -41,7 +42,7 @@ export function SetPasswordForm() {
       }
     }
     check();
-    const { data: sub } = supabase.auth.onAuthStateChange((_event: string, sess) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((_event: string, sess: Session | null) => {
       if (sess) {
         setSessionReady("yes");
         setEmail(sess.user.email ?? null);
