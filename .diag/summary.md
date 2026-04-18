@@ -1,4 +1,4 @@
-# diag @ 2026-04-18T20:52:48.847Z
+# diag @ 2026-04-18T21:19:10.633Z
 
 ## env
 - has_NEXT_PUBLIC_SUPABASE_URL: true
@@ -45,3 +45,11 @@
 - survey_responses: 0
 - tags: 0
 - voter_tags: 0
+
+
+## vercel
+- state: ERROR
+- sha: 014d5a8
+- target: production
+- created: 58266-07-15T03:47:30Z
+- url: door-knocking-ckik38sf6-jamesflynn-2033s-projects.vercel.app

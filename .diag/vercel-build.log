@@ -1,0 +1,37 @@
+1776547051348 [stdout] Running build in Washington, D.C., USA (East) – iad1 (Turbo Build Machine)
+1776547051349 [stdout] Build machine configuration: 30 cores, 60 GB
+1776547051447 [stdout] Cloning github.com/horatio8/DoorKnocking (Branch: claude/build-doorknock-platform-ktF3d, Commit: 014d5a8)
+1776547051674 [stdout] Cloning completed: 227.000ms
+1776547052325 [stdout] Restored build cache from previous deployment (EpRMkB5dJMgkFbw1iqq8Yo2rSLK2)
+1776547052483 [stdout] Running "vercel build"
+1776547053029 [stderr] Vercel CLI 51.6.1
+1776547053267 [stdout] Installing dependencies...
+1776547054333 [stdout] 
+1776547054334 [stdout] up to date in 898ms
+1776547054334 [stdout] 
+1776547054334 [stdout] 184 packages are looking for funding
+1776547054334 [stdout]   run `npm fund` for details
+1776547054360 [stdout] Detected Next.js version: 14.2.14
+1776547054366 [stdout] Running "npm run build"
+1776547054449 [stdout] 
+1776547054449 [stdout] > campaignos-doorknock@0.1.0 build
+1776547054449 [stdout] > next build
+1776547054449 [stdout] 
+1776547055014 [stdout]   ▲ Next.js 14.2.14
+1776547055014 [stdout] 
+1776547055032 [stdout]    Creating an optimized production build ...
+1776547068036 [stdout]  ✓ Compiled successfully
+1776547068037 [stdout]    Linting and checking validity of types ...
+1776547073270 [stderr] Failed to compile.
+1776547073270 [stderr] 
+1776547073270 [stderr] ./app/(auth)/set-password/set-password-form.tsx:44:76
+1776547073270 [stderr] Type error: Parameter 'sess' implicitly has an 'any' type.
+1776547073270 [stderr] 
+1776547073270 [stderr] [0m [90m 42 |[39m     }[0m
+1776547073270 [stderr] [0m [90m 43 |[39m     check()[33m;[39m[0m
+1776547073270 [stderr] [0m[31m[1m>[22m[39m[90m 44 |[39m     [36mconst[39m { data[33m:[39m sub } [33m=[39m supabase[33m.[39mauth[33m.[39monAuthStateChange((_event[33m:[39m string[33m,[39m sess) [33m=>[39m {[0m
+1776547073271 [stderr] [0m [90m    |[39m                                                                            [31m[1m^[22m[39m[0m
+1776547073271 [stderr] [0m [90m 45 |[39m       [36mif[39m (sess) {[0m
+1776547073271 [stderr] [0m [90m 46 |[39m         setSessionReady([32m"yes"[39m)[33m;[39m[0m
+1776547073271 [stderr] [0m [90m 47 |[39m         setEmail(sess[33m.[39muser[33m.[39memail [33m?[39m[33m?[39m [36mnull[39m)[33m;[39m[0m
+1776547073315 [stderr] Error: Command "npm run build" exited with 1
