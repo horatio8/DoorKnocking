@@ -12,6 +12,7 @@ import {
   WalkbookOverviewMap,
   type WalkbookViz,
 } from "@/components/admin/walkbook-overview-map";
+import { StepBadge } from "@/components/admin/step-badge";
 
 export interface AssignVolunteer {
   id: string;
@@ -812,19 +813,6 @@ export function AssignWalkbooksView(props: Props) {
         />
       ) : null}
     </div>
-  );
-}
-
-function StepBadge({ number, active }: { number: number; active: boolean }) {
-  return (
-    <span
-      className={`mt-0.5 inline-flex h-5 w-5 flex-none items-center justify-center rounded-full text-[11px] font-semibold ${
-        active ? "bg-navy-900 text-white" : "bg-navy-100 text-navy-500"
-      }`}
-      aria-hidden
-    >
-      {number}
-    </span>
   );
 }
 

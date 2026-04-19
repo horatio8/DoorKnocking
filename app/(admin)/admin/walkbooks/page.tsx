@@ -9,6 +9,7 @@ import {
   WalkbookOverviewMap,
   type WalkbookViz,
 } from "@/components/admin/walkbook-overview-map";
+import { StepBadge } from "@/components/admin/step-badge";
 import { walkbookColor } from "@/lib/walkbooks/color";
 import { formatRelative } from "@/lib/utils";
 
@@ -182,33 +183,91 @@ export default async function AdminWalkbooks() {
     return `${h}h ${m}m`;
   }
 
+  // Per-step counters for the workflow header.
+  const assignedCount = assignmentByWalkbook.size;
+  const unassignedCount = Math.max(0, total - assignedCount);
+  const hasWalkbooks = total > 0;
+  const step1Active = !hasWalkbooks;
+  const step2Active = hasWalkbooks && unassignedCount > 0;
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="font-serif text-2xl font-semibold text-navy-900">Walkbooks</h1>
           <p className="text-sm text-muted-foreground">
-            Geographic clusters of households assigned as a single unit of work.
+            Two steps: generate walkable clusters, then hand them to volunteers.
           </p>
         </div>
-        {districts.length > 0 ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <Link
-              href="/admin/walkbooks/batches"
-              className="text-xs text-muted-foreground underline"
-            >
-              Batch history
-            </Link>
-            <Link
-              href="/admin/walkbooks/assign"
-              className="inline-flex items-center rounded-md border border-navy-200 bg-white px-3 py-1.5 text-sm font-medium text-navy-900 hover:bg-navy-50"
-            >
-              Assign walkbooks →
-            </Link>
-            <GenerateWalkbooksButton districts={districts} />
-          </div>
-        ) : null}
+        <Link
+          href="/admin/walkbooks/batches"
+          className="text-xs text-muted-foreground underline"
+        >
+          Batch history
+        </Link>
       </div>
+
+      {districts.length > 0 ? (
+        <div className="grid gap-3 md:grid-cols-2">
+          <section
+            className={`rounded-lg border bg-white p-4 transition ${
+              step1Active ? "border-navy-300 shadow-sm" : "border-border"
+            }`}
+          >
+            <div className="flex items-start gap-3">
+              <StepBadge number={1} active={step1Active} />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-navy-900">Generate walkbooks</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {hasWalkbooks
+                    ? `${total} walkbooks covering ${totalDoors.toLocaleString()} doors. Regenerate when the household set changes.`
+                    : "Cluster this client's households into walkable routes. Pick a district, household filter, and walkbook size."}
+                </p>
+              </div>
+            </div>
+            <div className="mt-3">
+              <GenerateWalkbooksButton districts={districts} />
+            </div>
+          </section>
+
+          <section
+            className={`rounded-lg border bg-white p-4 transition ${
+              step2Active
+                ? "border-navy-300 shadow-sm"
+                : hasWalkbooks
+                  ? "border-border"
+                  : "border-border opacity-60"
+            }`}
+          >
+            <div className="flex items-start gap-3">
+              <StepBadge number={2} active={step2Active} />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-navy-900">Assign walkbooks</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {!hasWalkbooks
+                    ? "Generate walkbooks first — this step unlocks once there's something to hand out."
+                    : unassignedCount === 0
+                      ? `All ${total} walkbooks assigned. Re-open the assignment screen to reshuffle.`
+                      : `${unassignedCount} unassigned of ${total}. Pick volunteers, then walkbooks, then distribute.`}
+                </p>
+              </div>
+            </div>
+            <div className="mt-3">
+              <Link
+                href="/admin/walkbooks/assign"
+                aria-disabled={!hasWalkbooks}
+                className={`inline-flex items-center rounded-md border px-3 py-1.5 text-sm font-medium ${
+                  hasWalkbooks
+                    ? "border-navy-900 bg-navy-900 text-white hover:bg-navy-800"
+                    : "pointer-events-none border-border bg-navy-50 text-navy-400"
+                }`}
+              >
+                Open assignment screen →
+              </Link>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       {total > 0 ? (
         <div className="flex flex-wrap gap-x-6 gap-y-1 rounded-md border border-border bg-white px-4 py-3 text-xs text-muted-foreground">
@@ -237,11 +296,7 @@ export default async function AdminWalkbooks() {
 
       {total === 0 ? (
         <div className="rounded-lg border border-dashed border-border bg-white p-10 text-center">
-          <p className="text-sm text-navy-900">No walkbooks yet.</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Use <strong>Generate walkbooks</strong> in the top-right to cluster your households
-            into walkable routes.
-          </p>
+          <p className="text-sm text-navy-900">No walkbooks yet — start at step 1 above.</p>
           <p className="mt-4 inline-block rounded-full border border-border bg-navy-50/40 px-3 py-1 text-[11px] text-muted-foreground">
             scope: client = <strong>{activeClient?.name ?? "(none)"}</strong> ·{" "}
             districts queried = <strong>{districtIds.length}</strong>
@@ -249,7 +304,14 @@ export default async function AdminWalkbooks() {
           </p>
         </div>
       ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-serif text-lg font-semibold text-navy-900">Current walkbooks</h2>
+            <p className="text-xs text-muted-foreground">
+              {assignedCount} assigned · {unassignedCount} unassigned
+            </p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {list.map((wb) => {
             const assignedUser = assignmentByWalkbook.get(wb.id) ?? null;
             const m = metrics(wb.id, wb.household_count);
@@ -318,6 +380,7 @@ export default async function AdminWalkbooks() {
               </Link>
             );
           })}
+          </div>
         </div>
       )}
     </div>
