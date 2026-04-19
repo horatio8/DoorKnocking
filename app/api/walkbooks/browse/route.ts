@@ -46,7 +46,7 @@ export async function GET(req: Request) {
       "id, name, description, status, household_count, estimated_duration_minutes, target_duration_minutes, centroid_lat, centroid_lng, kind, district_id",
     )
     .eq("district_id", districtId)
-    .neq("status", "completed")
+    .neq("status", "complete")
     .eq("ephemeral", false);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const rows = (walkbooks ?? []) as WalkbookRow[];
