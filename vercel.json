@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/walkbook-maintenance",
       "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/transcribe-voice-notes",
+      "schedule": "*/10 * * * *"
     }
   ],
   "git": {
