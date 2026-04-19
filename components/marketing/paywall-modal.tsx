@@ -1,11 +1,11 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { CivicButton } from "./civic-button";
 import { CivicField, CivicInput, CivicLabel } from "./civic-input";
 import { Eyebrow } from "./eyebrow";
 import { ShieldIcon, XIcon } from "./civic-icons";
 import { StripeCardInput } from "./stripe-card-input";
+import { CheckoutButton } from "./checkout-button";
 
 // Modal body for paywall C. Extracted so the page can stay server-rendered
 // while the interactive modal lives in its own client island.
@@ -106,9 +106,14 @@ export function PaywallModal() {
             </div>
           </CivicField>
 
-          <CivicButton variant="oxblood" size="lg" className="mt-2 w-full">
-            Unlock Pro — $0 today
-          </CivicButton>
+          <CheckoutButton
+            plan="pro"
+            interval="annual"
+            variant="oxblood"
+            size="lg"
+            label="Unlock Pro — $0 today"
+            className="mt-2"
+          />
 
           <div className="mt-3.5 flex items-center justify-between text-[11px] text-mute">
             <span className="inline-flex items-center gap-1.5">

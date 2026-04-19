@@ -21,6 +21,8 @@ import { ClientSwitcher } from "@/components/admin/client-switcher";
 import { GlobalSearch } from "@/components/admin/global-search";
 import { LogoutButton } from "@/components/knocker/logout-button";
 import { getActiveClient } from "@/lib/clients/active";
+import { AdminBillingStatus } from "@/components/admin/admin-billing-status";
+import { getBillingState } from "@/lib/billing/trial";
 
 const NAV = [
   { href: "/admin", label: "Overview", icon: BarChart3 },
@@ -48,6 +50,20 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   }
   if (session.user.must_change_password) {
     redirect("/set-password");
+  }
+
+  // Self-serve admins who finished signup but not the 3-step wizard get
+  // bounced back to finish it before any admin route becomes reachable.
+  // (Admins that came up via old paths won't have trial_started_at set, so
+  // they skip this gate.)
+  if (session.user.trial_started_at && !session.user.setup_completed_at) {
+    redirect("/setup/role");
+  }
+
+  // Pull billing state once and use it for the banner + hard gate.
+  const billing = await getBillingState();
+  if (billing.trialEnded && !billing.hasPaymentMethod && billing.subscriptionStatus !== "active") {
+    redirect("/billing/activate");
   }
 
   const supabase = getSupabaseServerClient();
@@ -120,6 +136,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             </Link>
           </div>
         </header>
+        <AdminBillingStatus billing={billing} />
         <main className="flex-1 p-6">{children}</main>
       </div>
     </div>

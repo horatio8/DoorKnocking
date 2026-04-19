@@ -40,6 +40,13 @@ export async function POST(req: Request) {
   }
 
   try {
+    // Any existing voters BEFORE this import? If zero, this is the user's
+    // first_voter_imported moment — fire the funnel event on success.
+    const { count: priorVoters } = await supabase
+      .from("voters")
+      .select("id", { count: "exact", head: true })
+      .eq("district_id", districtId);
+
     const summary = await runImport({
       supabase,
       districtId,
@@ -49,6 +56,18 @@ export async function POST(req: Request) {
       airtableToken: creds.token,
       limit,
     });
+
+    if (!priorVoters) {
+      await supabase
+        .from("signup_funnel_events")
+        .insert({
+          event: "first_voter_imported",
+          user_id: session.user.id,
+          props: { district_id: districtId, summary },
+        })
+        .then(() => void 0);
+    }
+
     return NextResponse.json({ ok: true, summary });
   } catch (err) {
     const message = (err as Error).message;

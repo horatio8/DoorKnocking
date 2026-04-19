@@ -78,6 +78,13 @@ export interface AppUser {
   gps_consent_version?: string | null;
   voice_note_consent?: boolean;
   voice_note_consent_at?: string | null;
+  // Self-serve onboarding + billing
+  trial_started_at?: string | null;
+  trial_ends_at?: string | null;
+  stripe_customer_id?: string | null;
+  signup_plan?: string | null;
+  email_verified_at?: string | null;
+  setup_completed_at?: string | null;
 }
 
 export interface Household {

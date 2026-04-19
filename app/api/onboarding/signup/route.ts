@@ -36,9 +36,12 @@ export async function POST(req: Request) {
     const service = getSupabaseServiceRoleClient();
     const now = new Date();
     const trialEnd = new Date(now.getTime() + TRIAL_DAYS * 86400 * 1000);
+    // Self-serve signups are campaign admins — flip off the default 'knocker'
+    // role the handle_new_auth_user trigger hands out.
     await service
       .from("users")
       .update({
+        role: "admin",
         trial_started_at: now.toISOString(),
         trial_ends_at: trialEnd.toISOString(),
         signup_plan: plan ?? "pro",

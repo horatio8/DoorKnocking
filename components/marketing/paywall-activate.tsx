@@ -2,33 +2,41 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { CampaignOSMark } from "@/components/marketing/campaign-os-mark";
-import { CivicButton } from "@/components/marketing/civic-button";
+import { CampaignOSMark } from "./campaign-os-mark";
+import { CivicButton } from "./civic-button";
 import {
   CivicField,
   CivicInput,
   CivicLabel,
   CivicSelect,
-} from "@/components/marketing/civic-input";
-import { CivicCheckbox } from "@/components/marketing/civic-check";
-import { Eyebrow } from "@/components/marketing/eyebrow";
-import { StripeCardInput } from "@/components/marketing/stripe-card-input";
+} from "./civic-input";
+import { CivicCheckbox } from "./civic-check";
+import { Eyebrow } from "./eyebrow";
+import { StripeCardInput } from "./stripe-card-input";
 import { trackFunnel } from "@/lib/marketing/funnel";
 
-// Variation A — default "respectful broadside". Parchment background,
-// centered single column (max 520px), plan summary in parchment box, lock
-// icon on CTA, muted skip link below. See handoff README §08.
+// Real paywall (promoted from /demo/paywall/a). CTA redirects through Stripe
+// Checkout. Gracefully surfaces "Billing isn't live yet" when env vars are
+// missing so preview deploys don't wedge users on this screen.
 
-export default function PaywallA() {
+const PLAN_PRICES: Record<string, { monthly: number; annual: number }> = {
+  starter: { monthly: 49, annual: 490 },
+  pro: { monthly: 199, annual: 1990 },
+};
+
+export function PaywallActivate({ planName }: { planName: string }) {
+  const planKey = planName.toLowerCase();
+  const pricing = PLAN_PRICES[planKey] ?? PLAN_PRICES.pro!;
+  const [interval, setInterval] = useState<"monthly" | "annual">("annual");
   const [receipt, setReceipt] = useState(true);
-  const [name, setName] = useState("James E. Sprouse");
-  const [zip, setZip] = useState("29401");
+  const [name, setName] = useState("");
+  const [zip, setZip] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    trackFunnel("paywall_viewed", { variant: "a" });
-  }, []);
+    trackFunnel("paywall_viewed", { plan: planKey, interval });
+  }, [planKey, interval]);
 
   async function startCheckout() {
     setBusy(true);
@@ -37,26 +45,29 @@ export default function PaywallA() {
       const res = await fetch("/api/billing/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan: "pro", interval: "annual" }),
+        body: JSON.stringify({ plan: planKey, interval }),
       });
       const body = await res.json();
       if (!res.ok) {
-        // Graceful fallback while Stripe isn't configured.
-        if (body.error === "billing_disabled") {
-          setError("Billing isn't live on this preview yet. See ONBOARDING-NEXT-STEPS.md.");
-        } else {
-          setError(body.message ?? body.error ?? `${res.status}`);
-        }
+        setError(
+          body.error === "billing_disabled"
+            ? "Billing isn't live on this deploy yet. Ask an admin to set STRIPE_SECRET_KEY."
+            : body.message ?? body.error ?? `${res.status}`,
+        );
         setBusy(false);
         return;
       }
-      trackFunnel("paywall_completed", { variant: "a" });
+      trackFunnel("paywall_completed", { plan: planKey, interval });
       window.location.href = body.url;
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
     }
   }
+
+  const price = interval === "annual" ? Math.round(pricing.annual / 12) : pricing.monthly;
+  const firstCharge =
+    interval === "annual" ? `$${pricing.annual.toLocaleString()}.00` : `$${pricing.monthly}.00`;
 
   return (
     <div className="min-h-screen bg-parchment px-8 py-10">
@@ -79,22 +90,49 @@ export default function PaywallA() {
         </div>
 
         <div className="border border-rule bg-white px-8 py-7">
-          {/* Summary */}
           <div className="mb-6 border border-rule-2 bg-parchment p-[18px]">
             <div className="mb-2.5 flex items-baseline justify-between gap-4">
               <div>
                 <Eyebrow variant="oxblood">Your plan</Eyebrow>
                 <div className="mt-0.5 font-serif text-[22px] font-semibold text-civic-navy">
-                  Pro · Annual
+                  {planName} · {interval === "annual" ? "Annual" : "Monthly"}
                 </div>
               </div>
               <div className="text-right">
                 <div className="font-mono text-2xl font-medium tabular-nums text-civic-navy">
-                  $1,990
+                  ${price}
                 </div>
-                <div className="text-[11px] text-mute">per year · save $398</div>
+                <div className="text-[11px] text-mute">
+                  /{interval === "annual" ? "mo · billed yearly" : "month"}
+                </div>
               </div>
             </div>
+
+            <div className="mb-2 flex gap-1 text-xs">
+              {(["monthly", "annual"] as const).map((v) => {
+                const active = interval === v;
+                return (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setInterval(v)}
+                    className={`flex-1 rounded-sm border px-2 py-1 font-semibold uppercase tracking-[0.08em] ${
+                      active
+                        ? "border-civic-navy bg-civic-navy text-parchment"
+                        : "border-rule bg-white text-mute"
+                    }`}
+                  >
+                    {v}
+                    {v === "annual" ? (
+                      <span className={`ml-1 text-[10px] ${active ? "text-parchment" : "text-oxblood"}`}>
+                        −17%
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+
             <hr className="my-2.5 border-0 border-t border-rule" />
             <div className="flex items-center justify-between text-[12.5px] text-ink-2">
               <span>Today</span>
@@ -102,9 +140,9 @@ export default function PaywallA() {
             </div>
             <div className="mt-1 flex items-center justify-between text-[12.5px] text-ink-2">
               <span>
-                First charge on <strong className="text-civic-navy">May 3, 2026</strong>
+                First charge when trial ends
               </span>
-              <span className="font-mono font-semibold tabular-nums">$1,990.00</span>
+              <span className="font-mono font-semibold tabular-nums">{firstCharge}</span>
             </div>
           </div>
 
@@ -119,7 +157,12 @@ export default function PaywallA() {
           </CivicField>
           <CivicField>
             <CivicLabel htmlFor="name-card">Name on card</CivicLabel>
-            <CivicInput id="name-card" value={name} onChange={(e) => setName(e.target.value)} />
+            <CivicInput
+              id="name-card"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="As it appears on the card"
+            />
           </CivicField>
           <div className="grid grid-cols-[2fr_1fr] gap-3">
             <CivicField>
@@ -156,7 +199,8 @@ export default function PaywallA() {
             onClick={startCheckout}
             disabled={busy}
           >
-            <LockIcon className="h-4 w-4" /> {busy ? "Connecting…" : "Start my Pro plan"}
+            <LockIcon className="h-4 w-4" />{" "}
+            {busy ? "Connecting to Stripe…" : `Start my ${planName} plan`}
           </CivicButton>
           {error ? (
             <p className="mt-2 rounded-sm bg-oxblood/10 px-3 py-2 text-xs text-oxblood">
@@ -165,28 +209,18 @@ export default function PaywallA() {
           ) : null}
 
           <p className="mt-4 text-center text-xs text-mute">
-            <Link href="/pricing" className="mr-4 text-civic-navy underline underline-offset-[3px] hover:text-oxblood">
-              Change plan
-            </Link>
-            <Link href="#" className="text-civic-navy underline underline-offset-[3px] hover:text-oxblood">
-              Questions? Chat with us
-            </Link>
+            Stripe handles the card. Campaign OS never sees it. Receipt email can be changed
+            in Billing settings.
           </p>
         </div>
 
         <p className="mt-5 text-center text-[13px] text-mute">
           <Link
-            href="/demo/voters"
-            onClick={() => trackFunnel("paywall_skipped", { variant: "a" })}
+            href="/admin"
+            onClick={() => trackFunnel("paywall_skipped", { plan: planKey })}
             className="no-underline hover:text-oxblood"
           >
             Not right now — keep exploring →
-          </Link>
-        </p>
-        <p className="mt-2 text-center text-[11px] text-mute">
-          Prefer the production route?{" "}
-          <Link href="/billing/activate" className="underline underline-offset-[3px] hover:text-oxblood">
-            /billing/activate
           </Link>
         </p>
       </div>

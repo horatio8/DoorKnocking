@@ -3,82 +3,59 @@ import { CivicButton } from "@/components/marketing/civic-button";
 import { CivicBadge } from "@/components/marketing/civic-badge";
 import { CivicSelect } from "@/components/marketing/civic-input";
 import { Eyebrow } from "@/components/marketing/eyebrow";
+import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
-export const metadata: Metadata = { title: "Signup funnel — Campaign OS (internal)" };
+export const metadata: Metadata = {
+  title: "Signup funnel — Campaign OS (internal)",
+};
+export const dynamic = "force-dynamic";
 
-// 15 · Internal funnel dashboard — KPIs + drop-off + UTM + friction flags.
-// Per handoff README §15.
+// 15 · Internal funnel dashboard. Reads real counts from signup_funnel_events
+// (last 30 days). Fall-through zeros when the table's empty.
 
-type Step = { l: string; n: number; target?: number };
-const STEPS: Step[] = [
-  { l: "Pricing page viewed", n: 8421 },
-  { l: "Signup started", n: 1247, target: 8 },
-  { l: "Email verified", n: 1128, target: 85 },
-  { l: "Wizard step 1", n: 1092 },
-  { l: "Wizard step 2", n: 1041 },
-  { l: "Wizard complete", n: 984, target: 90 },
-  { l: "Paywall viewed", n: 712, target: 60 },
-  { l: "Card captured", n: 327, target: 40 },
-  { l: "First voter imported", n: 281 },
+const STEP_DEFS: Array<{ key: string; label: string; target?: number }> = [
+  { key: "pricing_viewed", label: "Pricing page viewed" },
+  { key: "signup_started", label: "Signup started", target: 8 },
+  { key: "email_verified", label: "Email verified", target: 85 },
+  { key: "wizard_step_1", label: "Wizard step 1" },
+  { key: "wizard_step_2", label: "Wizard step 2" },
+  { key: "wizard_complete", label: "Wizard complete", target: 90 },
+  { key: "paywall_viewed", label: "Paywall viewed", target: 60 },
+  { key: "paywall_completed", label: "Card captured", target: 40 },
+  { key: "first_voter_imported", label: "First voter imported" },
 ];
 
-type Kpi = { l: string; n: string; d: string; ok: boolean | null; spark: number[] };
-const KPIS: Kpi[] = [
-  {
-    l: "New paying customers",
-    n: "327",
-    d: "+18% vs prev",
-    ok: true,
-    spark: [2, 5, 3, 6, 4, 8, 7, 9, 11, 12, 14, 18],
-  },
-  {
-    l: "Trial → paid conversion",
-    n: "33.2%",
-    d: "target 25%",
-    ok: true,
-    spark: [22, 25, 28, 26, 30, 31, 29, 32, 33, 33],
-  },
-  {
-    l: "Median time to paid",
-    n: "11m 42s",
-    d: "target <15m",
-    ok: true,
-    spark: [18, 17, 15, 14, 13, 12, 12, 11, 11, 11],
-  },
-  {
-    l: "Paywall skip rate",
-    n: "54.1%",
-    d: "retarget @ d7/d12",
-    ok: null,
-    spark: [52, 54, 55, 53, 54, 54, 54],
-  },
-];
+export default async function FunnelPage() {
+  const supabase = getSupabaseServiceRoleClient();
+  const since = new Date(Date.now() - 30 * 86400 * 1000).toISOString();
 
-const UTM: Array<[string, number, number, number, string]> = [
-  ["organic", 3120, 441, 127, "4.1%"],
-  ["twitter", 1842, 312, 84, "4.6%"],
-  ["newsletter/punchbowl", 1204, 198, 61, "5.1%"],
-  ["referral", 892, 161, 38, "4.3%"],
-  ["google/cpc", 743, 92, 12, "1.6%"],
-];
+  const { data: rows } = await supabase
+    .from("signup_funnel_events")
+    .select("event")
+    .gte("occurred_at", since);
+  const counts = new Map<string, number>();
+  for (const r of (rows ?? []) as Array<{ event: string }>) {
+    counts.set(r.event, (counts.get(r.event) ?? 0) + 1);
+  }
+  const steps = STEP_DEFS.map((d) => ({ ...d, n: counts.get(d.key) ?? 0 }));
+  const topN = Math.max(...steps.map((s) => s.n), 1);
+  const signupTotal = counts.get("signup_submitted") ?? counts.get("signup_started") ?? 0;
+  const paid = counts.get("paywall_completed") ?? 0;
+  const paywalled = counts.get("paywall_viewed") ?? 0;
+  const skipped = counts.get("paywall_skipped") ?? 0;
+  const trialToPaidPct = signupTotal > 0 ? Math.round((paid / signupTotal) * 1000) / 10 : 0;
+  const paywallSkipPct = paywalled > 0 ? Math.round((skipped / paywalled) * 1000) / 10 : 0;
 
-const FLAGS: Array<{ c: "oxblood" | "amber" | "mute"; t: string; d: string }> = [
-  { c: "oxblood", t: "Google CPC converting at 1.6%", d: "Half of the site average. Check landing-page copy." },
-  { c: "amber", t: "Paywall skip = 54% on annual", d: "Monthly default may help; test this week." },
-  { c: "mute", t: "12 enterprise prospects auto-routed", d: "F500 domains redirected to sales calendar." },
-];
-
-export default function FunnelPage() {
   return (
     <div className="min-h-screen bg-paper">
       {/* Internal banner */}
       <div className="flex flex-wrap items-center justify-between gap-2 bg-rule-dark px-6 py-2.5 text-xs text-parchment">
         <span>
           <span className="font-mono tracking-[0.1em] text-oxblood">● INTERNAL</span>{" "}
-          &nbsp;&nbsp; /admin/internal/signup-funnel &nbsp;·&nbsp; teller.co employees only
+          &nbsp;&nbsp; /demo/internal/signup-funnel &nbsp;·&nbsp; teller.co employees only
         </span>
         <span className="font-mono text-parchment/50 tabular-nums">
-          Last updated 2m ago · Auto-refresh 15m
+          Live from signup_funnel_events · last 30d
         </span>
       </div>
 
@@ -106,22 +83,23 @@ export default function FunnelPage() {
 
         {/* KPIs */}
         <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {KPIS.map((k) => (
-            <div key={k.l} className="border border-rule bg-white p-[18px]">
-              <Eyebrow className="mb-1.5 block">{k.l}</Eyebrow>
-              <div className="flex items-end justify-between">
-                <div className="font-serif font-mono text-[28px] font-semibold tabular-nums text-civic-navy">
-                  {k.n}
-                </div>
-                <Spark data={k.spark} oxblood={k.ok === null} w={70} h={26} />
-              </div>
-              <div
-                className={`mt-1 text-[11px] ${k.ok ? "text-civic-green" : "text-mute"}`}
-              >
-                {k.d}
-              </div>
-            </div>
-          ))}
+          <Kpi label="New paying customers" value={paid.toLocaleString()} note="last 30 days" />
+          <Kpi
+            label="Trial → paid conversion"
+            value={`${trialToPaidPct}%`}
+            note={`${paid} paid / ${signupTotal} signups`}
+            good={trialToPaidPct >= 25}
+          />
+          <Kpi
+            label="Paywall skip rate"
+            value={`${paywallSkipPct}%`}
+            note={`${skipped} skipped / ${paywalled} viewed`}
+          />
+          <Kpi
+            label="Pricing views"
+            value={(counts.get("pricing_viewed") ?? 0).toLocaleString()}
+            note="top of funnel"
+          />
         </div>
 
         {/* Funnel */}
@@ -133,25 +111,32 @@ export default function FunnelPage() {
             </div>
           </div>
           <div className="px-6 py-5">
-            {STEPS.map((s, i) => {
-              const width = (s.n / STEPS[0]!.n) * 100;
-              const stepPct = i > 0 ? (s.n / STEPS[i - 1]!.n) * 100 : 100;
+            {steps.map((s, i) => {
+              const width = (s.n / topN) * 100;
+              const prev = i > 0 ? steps[i - 1]!.n : s.n;
+              const stepPct = prev > 0 ? (s.n / prev) * 100 : 0;
               const meetsTarget = s.target == null ? null : stepPct >= s.target;
               return (
                 <div
-                  key={s.l}
-                  className={`grid items-center gap-4 py-2.5 ${i < STEPS.length - 1 ? "border-b border-dashed border-rule-2" : ""}`}
+                  key={s.key}
+                  className={`grid items-center gap-4 py-2.5 ${i < steps.length - 1 ? "border-b border-dashed border-rule-2" : ""}`}
                   style={{ gridTemplateColumns: "220px 1fr 90px 90px 110px" }}
                 >
                   <div className="flex items-center gap-2 text-[13px]">
                     <span className="font-mono text-[10px] tracking-[0.1em] text-mute tabular-nums">
                       {String(i + 1).padStart(2, "0")}
                     </span>
-                    {s.l}
+                    {s.label}
                   </div>
                   <div className="relative h-[22px] bg-parchment">
                     <div
-                      className={`h-full ${i === 0 ? "bg-civic-navy-3" : meetsTarget === false ? "bg-oxblood" : "bg-civic-navy"}`}
+                      className={`h-full ${
+                        i === 0
+                          ? "bg-civic-navy-3"
+                          : meetsTarget === false
+                            ? "bg-oxblood"
+                            : "bg-civic-navy"
+                      }`}
                       style={{ width: `${width}%` }}
                     />
                   </div>
@@ -159,7 +144,7 @@ export default function FunnelPage() {
                     {s.n.toLocaleString()}
                   </div>
                   <div className="text-right font-mono text-xs tabular-nums text-mute">
-                    {i > 0 ? `${stepPct.toFixed(1)}%` : "100%"}
+                    {i > 0 ? `${stepPct.toFixed(1)}%` : "—"}
                   </div>
                   <div className="text-right text-[10px]">
                     {s.target ? (
@@ -173,71 +158,61 @@ export default function FunnelPage() {
                 </div>
               );
             })}
+            {rows?.length === 0 ? (
+              <p className="mt-4 text-center text-xs text-mute">
+                No events yet — fire the flow from /pricing → /signup → … to see data here.
+              </p>
+            ) : null}
           </div>
         </div>
 
-        {/* Bottom row */}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.4fr_1fr]">
-          <div className="border border-rule bg-white">
-            <div className="border-b border-rule-2 px-5 py-4">
-              <Eyebrow variant="oxblood">By acquisition source</Eyebrow>
-              <div className="mt-0.5 font-serif text-base font-semibold">
-                Top channels · 30 days
-              </div>
-            </div>
-            <table className="w-full text-left text-sm">
-              <thead className="bg-parchment">
-                <tr className="text-[11px] uppercase tracking-[0.08em] text-mute">
-                  <th className="px-5 py-3 font-semibold">UTM source</th>
-                  <th className="px-3 py-3 font-semibold">Pricing views</th>
-                  <th className="px-3 py-3 font-semibold">Signups</th>
-                  <th className="px-3 py-3 font-semibold">Paid</th>
-                  <th className="px-3 py-3 font-semibold">CVR</th>
-                </tr>
-              </thead>
-              <tbody>
-                {UTM.map((r) => {
-                  const cvrOk = parseFloat(r[4] as string) >= 4;
-                  return (
-                    <tr key={r[0]} className="border-t border-rule-2">
-                      <td className="px-5 py-3 font-mono text-xs">{r[0]}</td>
-                      <td className="px-3 py-3 font-mono tabular-nums">
-                        {(r[1] as number).toLocaleString()}
-                      </td>
-                      <td className="px-3 py-3 font-mono tabular-nums">{r[2]}</td>
-                      <td className="px-3 py-3 font-mono font-semibold tabular-nums">{r[3]}</td>
-                      <td
-                        className={`px-3 py-3 font-mono tabular-nums ${cvrOk ? "text-civic-green" : "text-oxblood"}`}
-                      >
-                        {r[4]}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="border border-rule bg-white p-5">
+            <Eyebrow variant="oxblood" className="mb-1.5 block">
+              By acquisition source
+            </Eyebrow>
+            <div className="mb-3 font-serif text-base font-semibold">UTM breakdown</div>
+            <p className="text-xs text-mute">
+              Once UTM data is flowing, this panel will break down signups by{" "}
+              <code className="font-mono">utm_source</code> /{" "}
+              <code className="font-mono">utm_medium</code>. Today&rsquo;s totals are in the KPI
+              row above.
+            </p>
           </div>
-
           <div className="border border-rule bg-white p-5">
             <Eyebrow variant="oxblood" className="mb-1.5 block">
               Friction flags
             </Eyebrow>
-            <div className="mb-3.5 font-serif text-base font-semibold">Things worth looking at</div>
+            <div className="mb-3.5 font-serif text-base font-semibold">Computed heuristics</div>
             <ul className="grid gap-2.5 text-[13px]">
-              {FLAGS.map((f, i) => (
-                <li
-                  key={i}
-                  className="flex items-start gap-2.5 border border-rule-2 bg-paper p-3"
-                >
-                  <CivicBadge variant={f.c} solid dot>
-                    {" "}
-                  </CivicBadge>
-                  <div>
-                    <div className="text-[12.5px] font-semibold">{f.t}</div>
-                    <div className="mt-0.5 text-[11.5px] text-mute">{f.d}</div>
-                  </div>
-                </li>
-              ))}
+              {trialToPaidPct > 0 && trialToPaidPct < 20 ? (
+                <FlagItem
+                  color="oxblood"
+                  title={`Trial → paid sitting at ${trialToPaidPct}%`}
+                  detail="Target is 25%. Inspect paywall skip reasons."
+                />
+              ) : null}
+              {paywallSkipPct > 50 ? (
+                <FlagItem
+                  color="amber"
+                  title={`Paywall skip rate ${paywallSkipPct}%`}
+                  detail="Worth testing monthly-first default."
+                />
+              ) : null}
+              {paid === 0 && signupTotal > 0 ? (
+                <FlagItem
+                  color="oxblood"
+                  title="No paid conversions in range"
+                  detail="Check whether STRIPE_PRICE_MAP is set."
+                />
+              ) : null}
+              {signupTotal === 0 ? (
+                <FlagItem
+                  color="mute"
+                  title="No signups in the last 30 days"
+                  detail="Once the marketing surface gets traffic, KPIs will populate."
+                />
+              ) : null}
             </ul>
           </div>
         </div>
@@ -246,29 +221,46 @@ export default function FunnelPage() {
   );
 }
 
-function Spark({
-  data,
-  oxblood,
-  w = 120,
-  h = 36,
+function Kpi({
+  label,
+  value,
+  note,
+  good,
 }: {
-  data: number[];
-  oxblood?: boolean;
-  w?: number;
-  h?: number;
+  label: string;
+  value: string;
+  note: string;
+  good?: boolean;
 }) {
-  const max = Math.max(...data);
-  const pts = data
-    .map((v, i) => `${(i / (data.length - 1)) * w},${h - (v / max) * h * 0.9 - 2}`)
-    .join(" ");
   return (
-    <svg width={w} height={h} className="block" aria-hidden>
-      <polyline
-        points={pts}
-        fill="none"
-        stroke={oxblood ? "#8B2635" : "#0B2545"}
-        strokeWidth={1.3}
-      />
-    </svg>
+    <div className="border border-rule bg-white p-[18px]">
+      <Eyebrow className="mb-1.5 block">{label}</Eyebrow>
+      <div className="font-serif font-mono text-[28px] font-semibold tabular-nums text-civic-navy">
+        {value}
+      </div>
+      <div className={`mt-1 text-[11px] ${good ? "text-civic-green" : "text-mute"}`}>{note}</div>
+    </div>
+  );
+}
+
+function FlagItem({
+  color,
+  title,
+  detail,
+}: {
+  color: "oxblood" | "amber" | "mute";
+  title: string;
+  detail: string;
+}) {
+  return (
+    <li className="flex items-start gap-2.5 border border-rule-2 bg-paper p-3">
+      <CivicBadge variant={color} solid dot>
+        {" "}
+      </CivicBadge>
+      <div>
+        <div className="text-[12.5px] font-semibold">{title}</div>
+        <div className="mt-0.5 text-[11.5px] text-mute">{detail}</div>
+      </div>
+    </li>
   );
 }

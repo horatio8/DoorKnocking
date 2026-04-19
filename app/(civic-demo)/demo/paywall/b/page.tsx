@@ -11,6 +11,7 @@ import {
 import { Eyebrow } from "@/components/marketing/eyebrow";
 import { CheckIcon, ShieldIcon } from "@/components/marketing/civic-icons";
 import { StripeCardInput } from "@/components/marketing/stripe-card-input";
+import { CheckoutButton } from "@/components/marketing/checkout-button";
 
 export const metadata: Metadata = { title: "Activate — Campaign OS" };
 
@@ -92,9 +93,11 @@ export default function PaywallB() {
               </span>
             </div>
 
-            <CivicButton variant="primary" size="lg" className="w-full">
-              <LockIcon className="h-4 w-4" /> Confirm &amp; start Pro
-            </CivicButton>
+            <CheckoutButton plan="pro" interval="annual" label="Confirm & start Pro" />
+            <p className="mt-2 text-center text-[11px] text-mute">
+              Routes through the real Stripe Checkout endpoint — graceful 501 if
+              STRIPE_SECRET_KEY isn&rsquo;t set.
+            </p>
             <p className="mt-2.5 text-center text-xs text-mute">
               <Link href="/demo/voters" className="hover:text-oxblood">
                 ← Not right now, keep exploring
