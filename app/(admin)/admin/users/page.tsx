@@ -4,8 +4,7 @@ import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { getActiveClient } from "@/lib/clients/active";
 import { Badge } from "@/components/ui/badge";
-import { InviteUserForm } from "@/components/admin/invite-user-form";
-import { BatchInviteForm } from "@/components/admin/batch-invite-form";
+import { UsersActionsArea } from "@/components/admin/users-actions-area";
 import { UserRowActions } from "@/components/admin/user-row-actions";
 
 export const dynamic = "force-dynamic";
@@ -100,24 +99,12 @@ export default async function AdminUsers() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="font-serif text-2xl font-semibold text-navy-900">Users</h1>
-          <p className="text-sm text-muted-foreground">
-            {activeClient
-              ? <>Knockers and admins for <strong>{activeClient.name}</strong>.</>
-              : "Knockers and admins across the platform."}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <BatchInviteForm clientId={activeClient?.id ?? null} districts={districts} />
-          <InviteUserForm
-            clientId={activeClient?.id ?? null}
-            districts={districts}
-            defaultDistrictId={session.district?.id ?? districts[0]?.id ?? null}
-          />
-        </div>
-      </div>
+      <UsersActionsArea
+        clientId={activeClient?.id ?? null}
+        clientName={activeClient?.name ?? null}
+        districts={districts}
+        defaultDistrictId={session.district?.id ?? districts[0]?.id ?? null}
+      />
 
       <div className="overflow-hidden rounded-lg border border-border bg-white">
         <table className="w-full text-sm">
