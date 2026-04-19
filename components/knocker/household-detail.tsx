@@ -19,6 +19,7 @@ import {
 import { useFieldStore } from "@/lib/offline/store";
 import { formatRelative } from "@/lib/utils";
 import { TagPicker } from "./tag-picker";
+import { VoterOneLiner } from "./voter-one-liner";
 
 interface Props {
   userId: string;
@@ -202,6 +203,7 @@ export function HouseholdDetail({ household, voters, recentKnocks, survey, stand
                   <Phone className="h-3 w-3" /> Call
                 </a>
               ) : null}
+              <VoterOneLiner voterId={selectedVoter.id} />
             </div>
             <div className="mt-4 space-y-2">
               <p className="text-xs font-semibold uppercase tracking-widest text-navy-700">Status</p>
