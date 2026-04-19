@@ -137,13 +137,15 @@ export function BrowseWalkbooks({ districtId }: { districtId: string }) {
               </button>
             ))}
             <input
-              type="number"
-              min={15}
-              max={240}
-              step={5}
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
               value={budget}
-              onChange={(e) => setBudget(Number(e.target.value))}
-              className="w-20 rounded border border-navy-200 px-2 py-1 text-xs"
+              onChange={(e) =>
+                setBudget(Number(e.target.value.replace(/[^0-9]/g, "")) || 0)
+              }
+              className="w-20 rounded border border-navy-200 px-2 py-1 text-center text-sm"
+              aria-label="Custom minutes"
             />
           </div>
         </div>

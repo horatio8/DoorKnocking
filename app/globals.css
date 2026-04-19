@@ -53,6 +53,16 @@
   body {
     min-height: 100vh;
   }
+  /* Knocker viewport lock — no pull-to-refresh, no overscroll bounce. */
+  body:has([data-knocker-shell]) {
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: pan-x pan-y;
+  }
+  html:has([data-knocker-shell]) {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
   .font-voter {
     @apply font-serif;
     font-feature-settings: "lnum";

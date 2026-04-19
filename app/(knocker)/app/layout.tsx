@@ -3,6 +3,7 @@ import Link from "next/link";
 import { MapIcon, ClipboardListIcon, UserIcon } from "lucide-react";
 import { loadSession } from "@/lib/auth/session";
 import { SyncBadge } from "@/components/knocker/sync-badge";
+import { FullscreenToggle } from "@/components/knocker/fullscreen-toggle";
 import { getActiveClient } from "@/lib/clients/active";
 
 export default async function KnockerLayout({ children }: { children: React.ReactNode }) {
@@ -11,18 +12,29 @@ export default async function KnockerLayout({ children }: { children: React.Reac
   const brandLabel = client?.brand?.short_name ?? client?.name ?? "Campaign OS";
 
   return (
-    <div className="flex h-screen flex-col bg-background">
+    <div
+      data-knocker-shell
+      className="fixed inset-0 flex flex-col overflow-hidden bg-background overscroll-contain"
+      style={{
+        height: "100dvh",
+        paddingTop: "env(safe-area-inset-top)",
+        paddingBottom: "env(safe-area-inset-bottom)",
+      }}
+    >
       <header
         className="flex items-center justify-between border-b border-border px-4 py-3 text-white"
         style={{ backgroundColor: "var(--client-primary)" }}
       >
-        <div>
+        <div className="min-w-0">
           <p className="text-[10px] uppercase tracking-widest text-white/70">{brandLabel}</p>
-          <h1 className="text-sm font-semibold">
+          <h1 className="truncate text-sm font-semibold">
             {session.district?.name ?? "Door Knock"}
           </h1>
         </div>
-        <SyncBadge />
+        <div className="flex items-center">
+          <SyncBadge />
+          <FullscreenToggle />
+        </div>
       </header>
       <main className="flex-1 overflow-hidden">{children}</main>
       <nav className="grid grid-cols-3 border-t border-border bg-white">
