@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { WizardShell } from "@/components/marketing/wizard-shell";
 import { CivicField, CivicInput, CivicLabel } from "@/components/marketing/civic-input";
 import { cn } from "@/lib/utils";
+import { trackFunnel } from "@/lib/marketing/funnel";
 
 const ELECTION_TYPES = [
   { value: "primary", label: "Primary" },
@@ -19,13 +20,35 @@ const TRAVEL_MODES = [
 
 export default function WizardStepCampaign() {
   const router = useRouter();
-  const [campaign, setCampaign] = useState("Sprouse for SC House 115");
-  const [candidate, setCandidate] = useState("James Sprouse");
+  const [campaign, setCampaign] = useState("");
+  const [candidate, setCandidate] = useState("");
   const [electionType, setElectionType] = useState("general");
   const [travel, setTravel] = useState("driving");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  function onContinue() {
-    router.push("/setup/district");
+  useEffect(() => {
+    trackFunnel("wizard_step_2");
+  }, []);
+
+  async function onContinue() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/onboarding/wizard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          step: 2,
+          payload: { campaign, candidate, election: electionType, travel },
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? `${res.status}`);
+      router.push("/setup/district");
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
   }
 
   return (
@@ -34,7 +57,7 @@ export default function WizardStepCampaign() {
       title="Your first campaign."
       backHref="/setup/role"
       onContinue={onContinue}
-      continueDisabled={!campaign.trim()}
+      continueDisabled={busy || !campaign.trim()}
     >
       <CivicField>
         <CivicLabel htmlFor="campaign">Campaign or organization name</CivicLabel>
@@ -42,6 +65,7 @@ export default function WizardStepCampaign() {
           id="campaign"
           value={campaign}
           onChange={(e) => setCampaign(e.target.value)}
+          placeholder="Sprouse for SC House 115"
         />
       </CivicField>
 
@@ -53,8 +77,12 @@ export default function WizardStepCampaign() {
           id="candidate"
           value={candidate}
           onChange={(e) => setCandidate(e.target.value)}
+          placeholder="James Sprouse"
         />
       </CivicField>
+      {error ? (
+        <p className="mt-2 rounded-sm bg-oxblood/10 px-3 py-2 text-xs text-oxblood">{error}</p>
+      ) : null}
 
       <CivicField>
         <CivicLabel>Election type</CivicLabel>

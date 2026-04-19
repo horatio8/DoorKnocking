@@ -5,6 +5,7 @@ import { TrialBanner } from "@/components/marketing/trial-banner";
 import { CivicButton } from "@/components/marketing/civic-button";
 import { Eyebrow } from "@/components/marketing/eyebrow";
 import { ArrowIcon } from "@/components/marketing/civic-icons";
+import { getBillingState } from "@/lib/billing/trial";
 
 export const metadata: Metadata = {
   title: "Empty dashboard — Campaign OS",
@@ -14,9 +15,20 @@ export const metadata: Metadata = {
 // EmptyDashboard. Reviewed as the civic-aesthetic preview; promote to the
 // real /admin surface when the aesthetic lands.
 
-export default function EmptyDashboardDemo() {
+export const dynamic = "force-dynamic";
+
+export default async function EmptyDashboardDemo() {
+  const billing = await getBillingState();
+  const planBadge = billing.trialEnded
+    ? "TRIAL · ENDED"
+    : `TRIAL · ${billing.trialDaysLeft} DAYS LEFT`;
+
   return (
-    <CivicAdminShell active="Voters" banner={<TrialBanner />}>
+    <CivicAdminShell
+      active="Voters"
+      planBadge={planBadge}
+      banner={<TrialBanner daysLeft={billing.trialDaysLeft} />}
+    >
       <div className="mb-6 flex flex-wrap items-baseline justify-between gap-4">
         <div>
           <Eyebrow className="mb-1 block">

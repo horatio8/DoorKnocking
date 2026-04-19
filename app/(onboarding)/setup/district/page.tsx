@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { WizardShell } from "@/components/marketing/wizard-shell";
 import {
@@ -11,20 +11,48 @@ import {
 } from "@/components/marketing/civic-input";
 import { RadioCard } from "@/components/marketing/radio-card";
 import { Eyebrow } from "@/components/marketing/eyebrow";
+import { trackFunnel } from "@/lib/marketing/funnel";
 
 export default function WizardStepDistrict() {
   const router = useRouter();
   const [country, setCountry] = useState("United States");
   const [region, setRegion] = useState("South Carolina");
-  const [districtName, setDistrictName] = useState("SC House District 115");
-  const [targetVoters, setTargetVoters] = useState("460");
-  const [airtable, setAirtable] = useState<"byo" | "managed">("byo");
-  const [baseId, setBaseId] = useState("appz0KOPIaQFCxxw3");
+  const [districtName, setDistrictName] = useState("");
+  const [targetVoters, setTargetVoters] = useState("");
+  const [airtable, setAirtable] = useState<"byo" | "managed">("managed");
+  const [baseId, setBaseId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  function onContinue() {
-    // TODO: create the first client + district row, link Airtable if 'byo'.
-    // For now, bounce to the admin dashboard which handles empty-state.
-    router.push("/admin");
+  useEffect(() => {
+    trackFunnel("wizard_step_3");
+  }, []);
+
+  async function onContinue() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/onboarding/wizard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          step: 3,
+          payload: {
+            country,
+            region,
+            district: districtName,
+            target_voters: targetVoters ? Number(targetVoters) : null,
+            airtable_base_id: airtable === "byo" ? baseId : null,
+          },
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? `${res.status}`);
+      trackFunnel("wizard_complete");
+      router.push("/admin");
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
   }
 
   return (
@@ -34,7 +62,7 @@ export default function WizardStepDistrict() {
       backHref="/setup/campaign"
       onContinue={onContinue}
       continueLabel="Finish setup"
-      continueDisabled={!districtName.trim()}
+      continueDisabled={busy || !districtName.trim()}
     >
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <CivicField>
@@ -70,8 +98,12 @@ export default function WizardStepDistrict() {
           id="district"
           value={districtName}
           onChange={(e) => setDistrictName(e.target.value)}
+          placeholder="SC House District 115"
         />
       </CivicField>
+      {error ? (
+        <p className="mb-2 rounded-sm bg-oxblood/10 px-3 py-2 text-xs text-oxblood">{error}</p>
+      ) : null}
 
       <CivicField>
         <CivicLabel htmlFor="target" hint="approximate">

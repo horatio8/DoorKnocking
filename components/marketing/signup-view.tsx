@@ -1,14 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { CampaignOSMark } from "./campaign-os-mark";
 import { CivicButton } from "./civic-button";
 import { CivicField, CivicInput, CivicLabel } from "./civic-input";
 import { CivicCheckbox } from "./civic-check";
 import { Eyebrow } from "./eyebrow";
 import { ArrowIcon, ShieldIcon } from "./civic-icons";
+import { trackFunnel } from "@/lib/marketing/funnel";
 
 // 02 · Signup — see design_handoff_onboarding_flow/signup.jsx SignupPage.
 // 50/50 columns on desktop; stacked on mobile. Left is the form, right is
@@ -23,17 +24,37 @@ const GUARANTEES = [
 
 export function SignupView({ planName }: { planName: string }) {
   const router = useRouter();
+  const params = useSearchParams();
+  const plan = params.get("plan") ?? "pro";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [tos, setTos] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  function onSubmit(e: React.FormEvent) {
+  useEffect(() => {
+    trackFunnel("signup_started", { plan });
+  }, [plan]);
+
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!tos) return;
-    // TODO: call Supabase auth.signUp. For now, forward to /verify with the
-    // email so the parking screen can render it.
-    const params = new URLSearchParams({ email });
-    router.push(`/verify?${params.toString()}`);
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/onboarding/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, plan }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? `${res.status}`);
+      trackFunnel("signup_submitted", { plan });
+      router.push(`/verify?email=${encodeURIComponent(email)}`);
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+    }
   }
 
   return (
@@ -107,11 +128,17 @@ export function SignupView({ planName }: { planName: string }) {
               type="submit"
               variant="primary"
               size="lg"
-              disabled={!tos || !email || password.length < 8}
+              disabled={busy || !tos || !email || password.length < 8}
               className="w-full"
             >
-              Create my account <ArrowIcon className="h-4 w-4" />
+              {busy ? "Creating account…" : "Create my account"}{" "}
+              <ArrowIcon className="h-4 w-4" />
             </CivicButton>
+            {error ? (
+              <p className="mt-2 rounded-sm bg-oxblood/10 px-3 py-2 text-xs text-oxblood">
+                {error}
+              </p>
+            ) : null}
 
             <p className="mt-5 text-center text-sm text-mute">
               Already have an account?{" "}

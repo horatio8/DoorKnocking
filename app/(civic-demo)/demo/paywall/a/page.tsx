@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { CampaignOSMark } from "@/components/marketing/campaign-os-mark";
 import { CivicButton } from "@/components/marketing/civic-button";
@@ -13,6 +13,7 @@ import {
 import { CivicCheckbox } from "@/components/marketing/civic-check";
 import { Eyebrow } from "@/components/marketing/eyebrow";
 import { StripeCardInput } from "@/components/marketing/stripe-card-input";
+import { trackFunnel } from "@/lib/marketing/funnel";
 
 // Variation A — default "respectful broadside". Parchment background,
 // centered single column (max 520px), plan summary in parchment box, lock
@@ -22,6 +23,40 @@ export default function PaywallA() {
   const [receipt, setReceipt] = useState(true);
   const [name, setName] = useState("James E. Sprouse");
   const [zip, setZip] = useState("29401");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    trackFunnel("paywall_viewed", { variant: "a" });
+  }, []);
+
+  async function startCheckout() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/billing/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan: "pro", interval: "annual" }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        // Graceful fallback while Stripe isn't configured.
+        if (body.error === "billing_disabled") {
+          setError("Billing isn't live on this preview yet. See ONBOARDING-NEXT-STEPS.md.");
+        } else {
+          setError(body.message ?? body.error ?? `${res.status}`);
+        }
+        setBusy(false);
+        return;
+      }
+      trackFunnel("paywall_completed", { variant: "a" });
+      window.location.href = body.url;
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-parchment px-8 py-10">
@@ -114,9 +149,20 @@ export default function PaywallA() {
             Email me a receipt each billing cycle.
           </CivicCheckbox>
 
-          <CivicButton variant="primary" size="lg" className="w-full">
-            <LockIcon className="h-4 w-4" /> Start my Pro plan
+          <CivicButton
+            variant="primary"
+            size="lg"
+            className="w-full"
+            onClick={startCheckout}
+            disabled={busy}
+          >
+            <LockIcon className="h-4 w-4" /> {busy ? "Connecting…" : "Start my Pro plan"}
           </CivicButton>
+          {error ? (
+            <p className="mt-2 rounded-sm bg-oxblood/10 px-3 py-2 text-xs text-oxblood">
+              {error}
+            </p>
+          ) : null}
 
           <p className="mt-4 text-center text-xs text-mute">
             <Link href="/pricing" className="mr-4 text-civic-navy underline underline-offset-[3px] hover:text-oxblood">
@@ -129,7 +175,11 @@ export default function PaywallA() {
         </div>
 
         <p className="mt-5 text-center text-[13px] text-mute">
-          <Link href="/demo/voters" className="no-underline hover:text-oxblood">
+          <Link
+            href="/demo/voters"
+            onClick={() => trackFunnel("paywall_skipped", { variant: "a" })}
+            className="no-underline hover:text-oxblood"
+          >
             Not right now — keep exploring →
           </Link>
         </p>

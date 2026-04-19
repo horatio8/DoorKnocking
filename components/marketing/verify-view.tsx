@@ -1,19 +1,61 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import type { Session } from "@supabase/supabase-js";
 import { Eyebrow } from "./eyebrow";
 import { CivicButton } from "./civic-button";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { trackFunnel } from "@/lib/marketing/funnel";
 
 // 03 · Verify email parking screen. See signup.jsx CheckEmailPage. Includes
 // an inline preview of the verification email we'll send.
 
 export function VerifyView({ email }: { email: string }) {
   const router = useRouter();
+  const [resending, setResending] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // When Supabase redirects back after the magic link, the helper lands us
+  // here with a session in hand. Fire the funnel event, stamp
+  // email_verified_at, then push into the wizard.
+  useEffect(() => {
+    const supabase = getSupabaseBrowserClient();
+    const run = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) return false;
+      trackFunnel("email_verified");
+      await fetch("/api/onboarding/verified", { method: "POST" }).catch(() => {});
+      router.replace("/setup/role");
+      return true;
+    };
+    void run();
+    const { data: sub } = supabase.auth.onAuthStateChange(
+      (_evt: string, session: Session | null) => {
+        if (session) void run();
+      },
+    );
+    return () => sub.subscription.unsubscribe();
+  }, [router]);
+
+  async function resend() {
+    setResending(true);
+    setNotice(null);
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const { error } = await supabase.auth.resend({ type: "signup", email });
+      if (error) throw error;
+      setNotice("Sent — check your inbox.");
+    } catch (e) {
+      setNotice((e as Error).message);
+    } finally {
+      setResending(false);
+    }
+  }
 
   function simulate() {
-    // TODO: real verify flow signs in via the magic link; this button is the
-    // prototype/dev hook that jumps straight to the wizard.
+    // Prototype hook kept for internal demos — skips the real magic-link.
     router.push("/setup/role");
   }
 
@@ -72,13 +114,18 @@ export function VerifyView({ email }: { email: string }) {
           >
             → Simulate verification (prototype)
           </button>
-          <Link
-            href="#"
-            className="text-civic-navy underline underline-offset-[3px] hover:text-oxblood"
+          <button
+            type="button"
+            onClick={resend}
+            disabled={resending}
+            className="text-civic-navy underline underline-offset-[3px] hover:text-oxblood disabled:opacity-60"
           >
-            Resend email
-          </Link>
+            {resending ? "Resending…" : "Resend email"}
+          </button>
         </div>
+        {notice ? (
+          <p className="mt-3 text-xs text-mute">{notice}</p>
+        ) : null}
         <p className="mt-10 text-xs text-mute">
           Didn&rsquo;t receive? Check spam, or{" "}
           <Link href="#" className="text-civic-navy underline underline-offset-[3px] hover:text-oxblood">

@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { WizardShell } from "@/components/marketing/wizard-shell";
 import { CivicField, CivicInput, CivicLabel } from "@/components/marketing/civic-input";
 import { RadioCard } from "@/components/marketing/radio-card";
+import { trackFunnel } from "@/lib/marketing/funnel";
 
 const ROLES: Array<{ value: string; title: string; description: string }> = [
   { value: "campaign_staff", title: "Campaign staff", description: "Working on a single race full-time." },
@@ -21,14 +22,37 @@ export default function WizardStepRole() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [role, setRole] = useState("consultant");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  function onContinue() {
-    // TODO: persist name + role against the session user before advancing.
-    router.push("/setup/campaign");
+  useEffect(() => {
+    trackFunnel("wizard_step_1");
+  }, []);
+
+  async function onContinue() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/onboarding/wizard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ step: 1, payload: { name, role } }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? `${res.status}`);
+      router.push("/setup/campaign");
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
   }
 
   return (
-    <WizardShell step={1} title="About you." onContinue={onContinue} continueDisabled={!name.trim()}>
+    <WizardShell
+      step={1}
+      title="About you."
+      onContinue={onContinue}
+      continueDisabled={busy || !name.trim()}
+    >
       <CivicField>
         <CivicLabel htmlFor="name">Your name</CivicLabel>
         <CivicInput id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" />
@@ -53,6 +77,9 @@ export default function WizardStepRole() {
         <span className="mr-1 align-[-2px] text-civic-navy">ℹ</span>
         Your role helps us show the right templates and examples. It&rsquo;s never shared.
       </div>
+      {error ? (
+        <p className="mt-3 rounded-sm bg-oxblood/10 px-3 py-2 text-xs text-oxblood">{error}</p>
+      ) : null}
     </WizardShell>
   );
 }

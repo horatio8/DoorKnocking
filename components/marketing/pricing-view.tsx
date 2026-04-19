@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { CivicButton } from "./civic-button";
@@ -12,6 +12,7 @@ import {
   type Plan,
 } from "@/lib/marketing/pricing-data";
 import { ArrowIcon, CheckIcon, ShieldIcon, XIcon } from "./civic-icons";
+import { trackFunnel } from "@/lib/marketing/funnel";
 
 type Interval = "monthly" | "annual";
 
@@ -19,6 +20,10 @@ type Interval = "monthly" | "annual";
 // cards with interval toggle, feature matrix, navy trust strip.
 export function PricingView() {
   const [interval, setInterval] = useState<Interval>("annual");
+
+  useEffect(() => {
+    trackFunnel("pricing_viewed");
+  }, []);
 
   return (
     <div className="bg-paper">
