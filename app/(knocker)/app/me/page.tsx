@@ -1,5 +1,4 @@
-import { redirect } from "next/navigation";
-import { loadSession } from "@/lib/auth/session";
+import { requireOnboardedKnocker } from "@/lib/auth/onboarding";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LogoutButton } from "@/components/knocker/logout-button";
@@ -7,8 +6,7 @@ import { LogoutButton } from "@/components/knocker/logout-button";
 export const dynamic = "force-dynamic";
 
 export default async function MyDayPage() {
-  const session = await loadSession();
-  if (!session) redirect("/login");
+  const session = await requireOnboardedKnocker();
   const supabase = getSupabaseServerClient();
 
   const startOfDay = new Date();

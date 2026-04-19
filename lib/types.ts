@@ -60,9 +60,24 @@ export interface AppUser {
   active: boolean;
   default_district_id: string | null;
   district_access: string[];
+  client_access?: string[];
   assigned_walkbook_ids: string[];
   last_seen_at: string | null;
   created_at: string;
+  // K1 onboarding & consent
+  must_change_password?: boolean;
+  phone?: string | null;
+  invite_sent_at?: string | null;
+  first_login_at?: string | null;
+  completed_welcome_at?: string | null;
+  commitment_level?: "one_time" | "few_sessions" | "regular" | "unknown" | null;
+  next_session_minutes?: number | null;
+  is_paid_canvasser?: boolean;
+  gps_consent?: boolean;
+  gps_consent_at?: string | null;
+  gps_consent_version?: string | null;
+  voice_note_consent?: boolean;
+  voice_note_consent_at?: string | null;
 }
 
 export interface Household {

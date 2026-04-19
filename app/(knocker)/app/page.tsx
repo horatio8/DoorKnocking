@@ -1,5 +1,9 @@
 import { redirect } from "next/navigation";
+import { requireOnboardedKnocker } from "@/lib/auth/onboarding";
 
-export default function AppIndex() {
-  redirect("/app/map");
+export const dynamic = "force-dynamic";
+
+export default async function AppIndex() {
+  await requireOnboardedKnocker();
+  redirect("/app/walkbooks/browse");
 }

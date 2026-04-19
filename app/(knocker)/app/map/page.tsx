@@ -1,5 +1,4 @@
-import { redirect } from "next/navigation";
-import { loadSession } from "@/lib/auth/session";
+import { requireOnboardedKnocker } from "@/lib/auth/onboarding";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import type { Household, Walkbook } from "@/lib/types";
 import { MapView } from "@/components/knocker/map-view";
@@ -7,8 +6,7 @@ import { MapView } from "@/components/knocker/map-view";
 export const dynamic = "force-dynamic";
 
 export default async function MapPage() {
-  const session = await loadSession();
-  if (!session) redirect("/login");
+  const session = await requireOnboardedKnocker();
   if (!session.district) {
     return (
       <div className="flex h-full items-center justify-center p-6 text-center text-muted-foreground">
