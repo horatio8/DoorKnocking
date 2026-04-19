@@ -74,10 +74,28 @@ const config: Config = {
           refused: "#DC2626",
           mixed: "#7C3AED",
         },
+
+        // Civic marketing palette (from design_handoff_onboarding_flow/styles.css).
+        // Scoped to its own keys so the admin + knocker surfaces don't shift.
+        ink: { DEFAULT: "#1A1817", 2: "#2E2B27" },
+        civic: {
+          navy: "#0B2545",
+          "navy-2": "#143059",
+          "navy-3": "#1E4680",
+          green: "#2E5E3A",
+          amber: "#8A6A1B",
+        },
+        oxblood: { DEFAULT: "#8B2635", 2: "#6E1E2A" },
+        gold: "#A47E3B",
+        parchment: { DEFAULT: "#F7F3EC", 2: "#EEE7DB" },
+        paper: "#FBFAF6",
+        rule: { DEFAULT: "#CFC7B5", 2: "#E3DCCC", dark: "#1F1C18" },
+        mute: { DEFAULT: "#6B655A", 2: "#8C867A" },
       },
       fontFamily: {
         sans: ["Inter", "system-ui", "sans-serif"],
-        serif: ["'Source Serif Pro'", "Georgia", "serif"],
+        serif: ["'Source Serif 4'", "'Source Serif Pro'", "Georgia", "serif"],
+        mono: ["'JetBrains Mono'", "'SF Mono'", "ui-monospace", "monospace"],
       },
       borderRadius: {
         lg: "var(--radius)",
