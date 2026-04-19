@@ -11,11 +11,17 @@ import {
 } from "@/components/admin/walkbook-overview-map";
 import { StepBadge } from "@/components/admin/step-badge";
 import { walkbookColor } from "@/lib/walkbooks/color";
+import { userInitials, userAvatarBackground, userAvatarForeground } from "@/lib/users/avatar";
 import { formatRelative } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminWalkbooks() {
+export default async function AdminWalkbooks({
+  searchParams,
+}: {
+  searchParams?: { view?: string };
+}) {
+  const view: "grouped" | "flat" = searchParams?.view === "flat" ? "flat" : "grouped";
   const session = await loadSession();
   if (!session) redirect("/login");
   if (session.user.role !== "admin" && session.user.role !== "super_admin") {
@@ -80,20 +86,27 @@ export default async function AdminWalkbooks() {
 
   // Active assignments — separate query, joined in JS.
   const wbIds = walkbookRows.map((w) => w.id);
-  const assignmentByWalkbook = new Map<string, { full_name: string | null }>();
+  const assignmentByWalkbook = new Map<string, { user_id: string; full_name: string | null; email: string }>();
   if (wbIds.length > 0) {
     const { data: assigns } = await supabase
       .from("walkbook_assignments")
-      .select("walkbook_id, user_id, users(full_name)")
+      .select("walkbook_id, user_id, users(full_name, email)")
       .in("walkbook_id", wbIds)
       .is("unassigned_at", null);
     for (const a of (assigns ?? []) as Array<{
       walkbook_id: string;
       user_id: string;
-      users: { full_name: string | null } | Array<{ full_name: string | null }> | null;
+      users:
+        | { full_name: string | null; email: string }
+        | Array<{ full_name: string | null; email: string }>
+        | null;
     }>) {
       const u = Array.isArray(a.users) ? a.users[0] : a.users;
-      assignmentByWalkbook.set(a.walkbook_id, { full_name: u?.full_name ?? null });
+      assignmentByWalkbook.set(a.walkbook_id, {
+        user_id: a.user_id,
+        full_name: u?.full_name ?? null,
+        email: u?.email ?? "",
+      });
     }
   }
 
@@ -189,6 +202,47 @@ export default async function AdminWalkbooks() {
   const hasWalkbooks = total > 0;
   const step1Active = !hasWalkbooks;
   const step2Active = hasWalkbooks && unassignedCount > 0;
+
+  // Group walkbooks by their volunteer. `null` key = unassigned bucket.
+  interface Group {
+    key: string; // user_id or "unassigned"
+    userId: string | null;
+    name: string;
+    email: string;
+    walkbooks: typeof walkbookRows;
+    totalDoors: number;
+    totalMinutes: number;
+    knockedDoors: number;
+  }
+  const groupsMap = new Map<string, Group>();
+  for (const wb of walkbookRows) {
+    const a = assignmentByWalkbook.get(wb.id) ?? null;
+    const key = a?.user_id ?? "unassigned";
+    const g =
+      groupsMap.get(key) ??
+      ({
+        key,
+        userId: a?.user_id ?? null,
+        name: a?.full_name ?? (a ? a.email : "Unassigned"),
+        email: a?.email ?? "",
+        walkbooks: [],
+        totalDoors: 0,
+        totalMinutes: 0,
+        knockedDoors: 0,
+      } as Group);
+    g.walkbooks.push(wb);
+    g.totalDoors += wb.household_count;
+    g.totalMinutes += wb.estimated_duration_minutes ?? wb.target_duration_minutes ?? 0;
+    g.knockedDoors += metrics(wb.id, wb.household_count).doorsKnocked;
+    groupsMap.set(key, g);
+  }
+  const groups = Array.from(groupsMap.values()).sort((a, b) => {
+    // Unassigned last; otherwise alphabetical by name.
+    if (a.userId && !b.userId) return -1;
+    if (!a.userId && b.userId) return 1;
+    return a.name.localeCompare(b.name);
+  });
+  const volunteerCount = groups.filter((g) => g.userId !== null).length;
 
   return (
     <div className="space-y-6">
@@ -304,86 +358,255 @@ export default async function AdminWalkbooks() {
           </p>
         </div>
       ) : (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="font-serif text-lg font-semibold text-navy-900">Current walkbooks</h2>
-            <p className="text-xs text-muted-foreground">
-              {assignedCount} assigned · {unassignedCount} unassigned
-            </p>
-          </div>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {list.map((wb) => {
-            const assignedUser = assignmentByWalkbook.get(wb.id) ?? null;
-            const m = metrics(wb.id, wb.household_count);
-            const pct = Math.round(m.completion * 100);
-            const est = wb.estimated_duration_minutes ?? wb.target_duration_minutes ?? null;
-
-            return (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="font-serif text-lg font-semibold text-navy-900">Current walkbooks</h2>
+              <p className="text-xs text-muted-foreground">
+                {volunteerCount} volunteer{volunteerCount === 1 ? "" : "s"} · {assignedCount}{" "}
+                assigned · {unassignedCount} unassigned
+              </p>
+            </div>
+            <div className="inline-flex overflow-hidden rounded-full border border-navy-200 text-xs">
               <Link
-                key={wb.id}
-                href={`/admin/walkbooks/${wb.id}`}
-                className="group block rounded-lg border border-l-4 border-border bg-white p-4 transition hover:border-navy-300 hover:shadow-sm"
-                style={{ borderLeftColor: walkbookColor(wb.id) }}
+                href="/admin/walkbooks"
+                className={
+                  view === "grouped"
+                    ? "bg-navy-900 px-3 py-1 text-white"
+                    : "px-3 py-1 text-navy-700 hover:bg-navy-50"
+                }
               >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="inline-block h-2.5 w-2.5 flex-none rounded-full"
-                        style={{ backgroundColor: walkbookColor(wb.id) }}
-                        aria-hidden
-                      />
-                      <p className="truncate font-medium text-navy-900 group-hover:text-navy-700">
-                        {wb.name}
-                      </p>
-                    </div>
-                    {districts.length > 1 && districtNameById.has(wb.district_id) ? (
-                      <p className="mt-0.5 text-[10px] uppercase tracking-widest text-navy-500">
-                        {districtNameById.get(wb.district_id)}
-                      </p>
-                    ) : null}
-                  </div>
-                  <StatusChip status={wb.status} kind={wb.kind} />
-                </div>
-
-                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                  <span>{wb.household_count} doors</span>
-                  {est ? (
-                    <span>
-                      ~{est}m {wb.travel_mode === "driving" ? "driving" : "walking"}
-                    </span>
-                  ) : null}
-                  {m.doorsPerHour != null ? <span>{m.doorsPerHour.toFixed(1)} doors/hr</span> : null}
-                </div>
-
-                <div className="mt-3">
-                  <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                    <span>
-                      {m.doorsKnocked} of {wb.household_count} knocked
-                    </span>
-                    <span>{pct}%</span>
-                  </div>
-                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-navy-50">
-                    <div
-                      className="h-full bg-navy-900 transition-all"
-                      style={{ width: `${Math.min(100, pct)}%` }}
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
-                  <span>
-                    {assignedUser?.full_name ? `→ ${assignedUser.full_name}` : "Unassigned"}
-                  </span>
-                  <span>{formatRelative(wb.created_at)}</span>
-                </div>
+                By volunteer
               </Link>
-            );
-          })}
+              <Link
+                href="/admin/walkbooks?view=flat"
+                className={
+                  view === "flat"
+                    ? "bg-navy-900 px-3 py-1 text-white"
+                    : "px-3 py-1 text-navy-700 hover:bg-navy-50"
+                }
+              >
+                Flat list
+              </Link>
+            </div>
           </div>
+
+          {view === "flat" ? (
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {list.map((wb) => (
+                <WalkbookCard
+                  key={wb.id}
+                  wb={wb}
+                  assignedUser={assignmentByWalkbook.get(wb.id) ?? null}
+                  metrics={metrics(wb.id, wb.household_count)}
+                  districts={districts}
+                  districtNameById={districtNameById}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {groups.map((g) => {
+                const isUnassigned = g.userId === null;
+                const seed = g.userId ?? g.email ?? g.name;
+                const completionPct =
+                  g.totalDoors > 0 ? Math.round((g.knockedDoors / g.totalDoors) * 100) : 0;
+                return (
+                  <section
+                    key={g.key}
+                    className={`rounded-lg border bg-white ${
+                      isUnassigned ? "border-dashed border-navy-200" : "border-border"
+                    }`}
+                  >
+                    <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 p-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        {isUnassigned ? (
+                          <span
+                            className="inline-flex h-9 w-9 flex-none items-center justify-center rounded-full border-2 border-dashed border-navy-300 text-xs font-semibold text-navy-400"
+                            aria-hidden
+                          >
+                            ?
+                          </span>
+                        ) : (
+                          <span
+                            className="inline-flex h-9 w-9 flex-none items-center justify-center rounded-full text-xs font-semibold"
+                            style={{
+                              backgroundColor: userAvatarBackground(seed),
+                              color: userAvatarForeground(seed),
+                            }}
+                            aria-hidden
+                          >
+                            {userInitials(g.name, g.email)}
+                          </span>
+                        )}
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-navy-900">
+                            {isUnassigned ? "Unassigned" : g.name}
+                          </p>
+                          <p className="truncate text-[11px] text-muted-foreground">
+                            {g.walkbooks.length} walkbook
+                            {g.walkbooks.length === 1 ? "" : "s"} · {g.totalDoors.toLocaleString()}{" "}
+                            doors · {hm(g.totalMinutes)} est
+                          </p>
+                        </div>
+                      </div>
+                      {!isUnassigned ? (
+                        <div className="flex items-center gap-3">
+                          <div className="w-32">
+                            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                              <span>{g.knockedDoors}/{g.totalDoors} knocked</span>
+                              <span>{completionPct}%</span>
+                            </div>
+                            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-navy-50">
+                              <div
+                                className="h-full bg-navy-900 transition-all"
+                                style={{ width: `${Math.min(100, completionPct)}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <Link
+                          href="/admin/walkbooks/assign"
+                          className="text-xs font-medium text-navy-700 underline"
+                        >
+                          Assign →
+                        </Link>
+                      )}
+                    </header>
+                    <div className="grid gap-3 p-3 md:grid-cols-2 xl:grid-cols-3">
+                      {g.walkbooks.map((wb) => (
+                        <WalkbookCard
+                          key={wb.id}
+                          wb={wb}
+                          assignedUser={assignmentByWalkbook.get(wb.id) ?? null}
+                          metrics={metrics(wb.id, wb.household_count)}
+                          districts={districts}
+                          districtNameById={districtNameById}
+                          hideAssigneeFooter
+                        />
+                      ))}
+                    </div>
+                  </section>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+interface WalkbookCardProps {
+  wb: {
+    id: string;
+    name: string;
+    district_id: string;
+    household_count: number;
+    status: string;
+    kind: string;
+    travel_mode: string;
+    estimated_duration_minutes: number | null;
+    target_duration_minutes: number | null;
+    created_at: string;
+  };
+  assignedUser: { user_id: string; full_name: string | null; email: string } | null;
+  metrics: { doorsPerHour: number | null; completion: number; doorsKnocked: number };
+  districts: Array<{ id: string; name: string }>;
+  districtNameById: Map<string, string>;
+  hideAssigneeFooter?: boolean;
+}
+
+function WalkbookCard({
+  wb,
+  assignedUser,
+  metrics: m,
+  districts,
+  districtNameById,
+  hideAssigneeFooter,
+}: WalkbookCardProps) {
+  const pct = Math.round(m.completion * 100);
+  const est = wb.estimated_duration_minutes ?? wb.target_duration_minutes ?? null;
+  return (
+    <Link
+      href={`/admin/walkbooks/${wb.id}`}
+      className="group block rounded-lg border border-l-4 border-border bg-white p-4 transition hover:border-navy-300 hover:shadow-sm"
+      style={{ borderLeftColor: walkbookColor(wb.id) }}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span
+              className="inline-block h-2.5 w-2.5 flex-none rounded-full"
+              style={{ backgroundColor: walkbookColor(wb.id) }}
+              aria-hidden
+            />
+            <p className="truncate font-medium text-navy-900 group-hover:text-navy-700">
+              {wb.name}
+            </p>
+          </div>
+          {districts.length > 1 && districtNameById.has(wb.district_id) ? (
+            <p className="mt-0.5 text-[10px] uppercase tracking-widest text-navy-500">
+              {districtNameById.get(wb.district_id)}
+            </p>
+          ) : null}
+        </div>
+        <StatusChip status={wb.status} kind={wb.kind} />
+      </div>
+
+      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+        <span>{wb.household_count} doors</span>
+        {est ? (
+          <span>
+            ~{est}m {wb.travel_mode === "driving" ? "driving" : "walking"}
+          </span>
+        ) : null}
+        {m.doorsPerHour != null ? <span>{m.doorsPerHour.toFixed(1)} doors/hr</span> : null}
+      </div>
+
+      <div className="mt-3">
+        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+          <span>
+            {m.doorsKnocked} of {wb.household_count} knocked
+          </span>
+          <span>{pct}%</span>
+        </div>
+        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-navy-50">
+          <div
+            className="h-full bg-navy-900 transition-all"
+            style={{ width: `${Math.min(100, pct)}%` }}
+          />
+        </div>
+      </div>
+
+      {!hideAssigneeFooter ? (
+        <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
+          <span>
+            {assignedUser?.full_name ? (
+              <span className="inline-flex items-center gap-1.5">
+                <span
+                  className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-semibold"
+                  style={{
+                    backgroundColor: userAvatarBackground(assignedUser.user_id),
+                    color: userAvatarForeground(assignedUser.user_id),
+                  }}
+                  aria-hidden
+                >
+                  {userInitials(assignedUser.full_name, assignedUser.email)}
+                </span>
+                {assignedUser.full_name}
+              </span>
+            ) : (
+              <span className="rounded-full border border-dashed border-navy-300 px-2 py-0.5 text-[10px] uppercase tracking-widest text-navy-500">
+                Unassigned
+              </span>
+            )}
+          </span>
+          <span>{formatRelative(wb.created_at)}</span>
+        </div>
+      ) : null}
+    </Link>
   );
 }
 
