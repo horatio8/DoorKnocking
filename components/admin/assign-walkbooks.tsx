@@ -488,9 +488,9 @@ export function AssignWalkbooksView(props: Props) {
       <div>
         <h1 className="font-serif text-2xl font-semibold text-navy-900">Assign walkbooks</h1>
         <p className="text-sm text-muted-foreground">
-          Pick the volunteers on the left, then the walkbooks on the right. One volunteer gets all
-          selected walkbooks; multiple volunteers share them via automatic distribution.
-          Session-locked — only one admin at a time.
+          <strong>1.</strong> Select volunteers to assign. <strong>2.</strong> Select walkbooks to
+          assign. <strong>3.</strong> Hit Assign — one volunteer gets them all, multiple share them
+          via automatic distribution. Session-locked — only one admin at a time.
         </p>
       </div>
 
@@ -501,8 +501,23 @@ export function AssignWalkbooksView(props: Props) {
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:[&>*:first-child]:order-2 lg:[&>*:last-child]:order-1">
         {/* Column 2 on desktop — walkbook checklist */}
-        <div className="flex max-h-[70vh] flex-col rounded-lg border border-border bg-white">
+        <div
+          className={`flex max-h-[70vh] flex-col rounded-lg border bg-white transition ${
+            selectedVolunteers.size === 0 ? "border-border opacity-60" : "border-navy-200"
+          }`}
+        >
           <div className="space-y-2 border-b border-border p-3">
+            <div className="flex items-center gap-2">
+              <StepBadge number={2} active={selectedVolunteers.size > 0} />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-navy-900">Select walkbooks</p>
+                <p className="text-[11px] text-muted-foreground">
+                  {selectedVolunteers.size === 0
+                    ? "Pick volunteers first — walkbooks unlock once step 1 is done."
+                    : `Check the walkbooks to hand to the ${selectedVolunteers.size} selected volunteer${selectedVolunteers.size === 1 ? "" : "s"}.`}
+                </p>
+              </div>
+            </div>
             <div className="flex items-center gap-2">
               <input
                 type="search"
@@ -615,19 +630,27 @@ export function AssignWalkbooksView(props: Props) {
           </div>
         </div>
 
-        {/* RIGHT: volunteer roster (checkbox-selectable) */}
-        <div className="flex max-h-[70vh] flex-col rounded-lg border border-border bg-white">
-          <div className="flex items-center justify-between border-b border-border p-3">
-            <p className="text-xs font-semibold uppercase tracking-widest text-navy-700">
-              Volunteers ({props.volunteers.length})
-            </p>
+        {/* Column 1 on desktop — volunteer roster (checkbox-selectable) */}
+        <div className="flex max-h-[70vh] flex-col rounded-lg border border-navy-200 bg-white">
+          <div className="flex items-start justify-between gap-3 border-b border-border p-3">
+            <div className="flex items-start gap-2">
+              <StepBadge number={1} active />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-navy-900">Select volunteers</p>
+                <p className="text-[11px] text-muted-foreground">
+                  {selectedVolunteers.size > 0
+                    ? `${selectedVolunteers.size} picked · ${props.volunteers.length} total`
+                    : `Tick one or more — ${props.volunteers.length} available for this client.`}
+                </p>
+              </div>
+            </div>
             {selectedVolunteers.size > 0 ? (
               <button
                 type="button"
                 onClick={() => setSelectedVolunteers(new Set())}
                 className="text-[11px] text-navy-600 underline"
               >
-                Clear ({selectedVolunteers.size})
+                Clear
               </button>
             ) : null}
           </div>
@@ -789,6 +812,19 @@ export function AssignWalkbooksView(props: Props) {
         />
       ) : null}
     </div>
+  );
+}
+
+function StepBadge({ number, active }: { number: number; active: boolean }) {
+  return (
+    <span
+      className={`mt-0.5 inline-flex h-5 w-5 flex-none items-center justify-center rounded-full text-[11px] font-semibold ${
+        active ? "bg-navy-900 text-white" : "bg-navy-100 text-navy-500"
+      }`}
+      aria-hidden
+    >
+      {number}
+    </span>
   );
 }
 
