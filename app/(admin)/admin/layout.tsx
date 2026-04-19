@@ -80,12 +80,24 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const nav = [...NAV, ...(session.user.role === "super_admin" ? SUPER_NAV : [])];
   const brandLabel = client?.name ?? "Campaign OS";
 
+  // Civic-aesthetic admin shell — same layout primitives, civic palette
+  // throughout. Plan badge at the bottom of the sidebar reflects live
+  // billing state. Existing ClientSwitcher / GlobalSearch / super-admin
+  // shortcuts kept verbatim.
+  const planBadge = billing.subscriptionStatus === "active"
+    ? `${(billing.planName ?? "PRO").toUpperCase()} · ACTIVE`
+    : billing.subscriptionStatus === "past_due" || billing.subscriptionStatus === "unpaid"
+      ? "PRO · PAST DUE"
+      : billing.trialEnded
+        ? "TRIAL · ENDED"
+        : `TRIAL · ${billing.trialDaysLeft} DAYS LEFT`;
+
   return (
-    <div className="flex min-h-screen bg-navy-50">
-      <aside className="hidden w-60 flex-col border-r border-border bg-white md:flex">
-        <div className="border-b border-border p-5">
-          <p className="text-[10px] uppercase tracking-widest text-navy-500">{brandLabel}</p>
-          <p className="font-serif text-lg font-semibold text-navy-900">Door Knock</p>
+    <div className="flex min-h-screen bg-paper">
+      <aside className="hidden w-60 flex-col border-r border-rule-dark bg-civic-navy text-parchment md:flex">
+        <div className="border-b border-parchment/10 p-5">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-parchment/55">{brandLabel}</p>
+          <p className="mt-0.5 font-serif text-lg font-semibold text-parchment">Knock</p>
         </div>
         <nav className="flex-1 space-y-0.5 p-3 text-sm">
           {nav.map((item) => {
@@ -94,27 +106,30 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               <Link
                 key={item.href}
                 href={item.href}
-                className="flex items-center gap-2 rounded-md px-3 py-2 text-navy-700 hover:bg-navy-50"
+                className="group flex items-center gap-2 rounded-sm px-3 py-2 text-parchment/80 no-underline hover:bg-parchment/10 hover:text-parchment"
               >
-                <Icon className="h-4 w-4" />
+                <Icon className="h-4 w-4 text-parchment/60 group-hover:text-oxblood" />
                 {item.label}
               </Link>
             );
           })}
         </nav>
-        <div className="border-t border-border p-4 text-xs text-muted-foreground">
-          <p className="truncate">{session.user.email}</p>
-          <p className="capitalize">{session.user.role.replace("_", " ")}</p>
+        <div className="border-t border-parchment/10 p-4 text-xs">
+          <p className="text-[9px] uppercase tracking-[0.12em] text-parchment/55">Plan</p>
+          <p className="mt-0.5 font-mono text-[11px] font-semibold text-oxblood">{planBadge}</p>
+          <hr className="my-3 border-0 border-t border-parchment/10" />
+          <p className="truncate text-parchment/70">{session.user.email}</p>
+          <p className="capitalize text-parchment/55">{session.user.role.replace("_", " ")}</p>
           <div className="mt-3">
             <LogoutButton />
           </div>
         </div>
       </aside>
       <div className="flex flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-border bg-white px-5 py-3">
+        <header className="flex items-center justify-between border-b border-rule bg-white px-5 py-3">
           <div className="flex items-center gap-4">
             <div>
-              <p className="text-[10px] uppercase tracking-widest text-navy-500">Client</p>
+              <p className="text-[10px] uppercase tracking-[0.14em] text-mute">Client</p>
               <ClientSwitcher activeClientId={client?.id ?? null} clients={clients} />
             </div>
             <GlobalSearch />
@@ -123,16 +138,16 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             {session.user.role === "super_admin" && (
               <Link
                 href="/admin/clients?new=1"
-                className="rounded-md bg-navy-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-navy-800"
+                className="inline-flex items-center gap-1 rounded-sm border border-civic-navy bg-civic-navy px-3 py-1.5 text-xs font-semibold text-parchment no-underline hover:bg-civic-navy-2"
               >
-                <Sparkles className="mr-1 inline h-3 w-3" /> Start Client Setup
+                <Sparkles className="h-3 w-3" /> Start Client Setup
               </Link>
             )}
             <Link
               href="/app/map"
-              className="rounded-md border border-navy-100 bg-white px-3 py-1.5 text-xs font-medium text-navy-700 hover:bg-navy-50"
+              className="inline-flex items-center gap-1 rounded-sm border border-rule bg-white px-3 py-1.5 text-xs font-semibold text-civic-navy no-underline hover:border-civic-navy hover:bg-parchment"
             >
-              <ListTodo className="mr-1 inline h-3 w-3" /> Field view
+              <ListTodo className="h-3 w-3" /> Field view
             </Link>
           </div>
         </header>

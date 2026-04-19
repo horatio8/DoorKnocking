@@ -70,7 +70,7 @@ export function PaywallActivate({ planName }: { planName: string }) {
     interval === "annual" ? `$${pricing.annual.toLocaleString()}.00` : `$${pricing.monthly}.00`;
 
   return (
-    <div className="min-h-screen bg-parchment px-8 py-10">
+    <div className="min-h-screen bg-parchment px-4 py-8 sm:px-8 sm:py-10">
       <div className="mx-auto max-w-[520px]">
         <div className="mb-7 text-center">
           <div className="mb-5 inline-flex items-center gap-2 text-civic-navy">
@@ -89,7 +89,7 @@ export function PaywallActivate({ planName }: { planName: string }) {
           </p>
         </div>
 
-        <div className="border border-rule bg-white px-8 py-7">
+        <div className="border border-rule bg-white px-5 py-6 sm:px-8 sm:py-7">
           <div className="mb-6 border border-rule-2 bg-parchment p-[18px]">
             <div className="mb-2.5 flex items-baseline justify-between gap-4">
               <div>

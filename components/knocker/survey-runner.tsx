@@ -11,18 +11,30 @@ interface Props {
   knockEventId: string;
   voter: Voter;
   survey: Survey & { survey_questions: SurveyQuestion[] };
+  initialAnswers?: Record<string, unknown>;
 }
 
 type Answer = string | string[] | number | boolean | null;
 
-export function SurveyRunner({ knockEventId, voter, survey }: Props) {
+export function SurveyRunner({ knockEventId, voter, survey, initialAnswers }: Props) {
   const router = useRouter();
   const questions = useMemo(
     () => [...survey.survey_questions].sort((a, b) => a.order_index - b.order_index),
     [survey.survey_questions],
   );
-  const [index, setIndex] = useState(0);
-  const [answers, setAnswers] = useState<Record<string, Answer>>({});
+  // Resume support — server-loaded prior answers seed local state, and the
+  // cursor jumps to the first unanswered question on mount.
+  const seeded: Record<string, Answer> = useMemo(() => {
+    const out: Record<string, Answer> = {};
+    if (!initialAnswers) return out;
+    for (const [k, v] of Object.entries(initialAnswers)) out[k] = v as Answer;
+    return out;
+  }, [initialAnswers]);
+  const [index, setIndex] = useState(() => {
+    const firstUnanswered = questions.findIndex((q) => isEmpty(seeded[q.id] ?? null));
+    return firstUnanswered === -1 ? 0 : firstUnanswered;
+  });
+  const [answers, setAnswers] = useState<Record<string, Answer>>(seeded);
   const [submitting, setSubmitting] = useState(false);
 
   const current = questions[index];
@@ -30,18 +42,38 @@ export function SurveyRunner({ knockEventId, voter, survey }: Props) {
   const answered = current ? answers[current.id] : null;
   const canAdvance = current ? !current.required || !isEmpty(answered) : false;
 
-  async function persist(questionId: string, answer: Answer) {
-    await enqueue({
-      id: uuid(),
-      endpoint: "survey_response",
-      payload: {
-        knock_event_id: knockEventId,
-        voter_id: voter.id,
-        survey_id: survey.id,
-        question_id: questionId,
-        answer,
-      },
-    });
+  async function persist(questionId: string, answer: Answer, partial = true) {
+    // Best-effort direct push to Supabase; outbox enqueue is the offline
+    // fallback so the answer survives a connection dropout.
+    try {
+      const res = await fetch("/api/knocker/survey-response", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          knock_event_id: knockEventId,
+          voter_id: voter.id,
+          survey_id: survey.id,
+          question_id: questionId,
+          answer,
+          partial,
+        }),
+        keepalive: true,
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+    } catch {
+      await enqueue({
+        id: uuid(),
+        endpoint: "survey_response",
+        payload: {
+          knock_event_id: knockEventId,
+          voter_id: voter.id,
+          survey_id: survey.id,
+          question_id: questionId,
+          answer,
+          partial,
+        },
+      });
+    }
   }
 
   function setAnswer(value: Answer) {
@@ -49,9 +81,18 @@ export function SurveyRunner({ knockEventId, voter, survey }: Props) {
     setAnswers((prev) => ({ ...prev, [current.id]: value }));
   }
 
+  async function handleSkip() {
+    if (!current || current.required) return;
+    if (index + 1 >= total) {
+      await finish(true);
+    } else {
+      setIndex(index + 1);
+    }
+  }
+
   async function handleNext() {
     if (!current || !canAdvance) return;
-    await persist(current.id, answers[current.id] ?? null);
+    await persist(current.id, answers[current.id] ?? null, true);
     if (index + 1 >= total) {
       await finish(true);
     } else {
@@ -61,16 +102,26 @@ export function SurveyRunner({ knockEventId, voter, survey }: Props) {
 
   async function finish(complete: boolean) {
     setSubmitting(true);
-    await enqueue({
-      id: uuid(),
-      endpoint: "knock_event",
-      payload: {
-        id: knockEventId,
-        client_event_id: knockEventId,
-        survey_completed: complete,
-        survey_partial: !complete,
-      },
-    });
+    try {
+      const res = await fetch("/api/knocker/survey-response", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ knock_event_id: knockEventId, complete }),
+        keepalive: true,
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+    } catch {
+      await enqueue({
+        id: uuid(),
+        endpoint: "knock_event",
+        payload: {
+          id: knockEventId,
+          client_event_id: knockEventId,
+          survey_completed: complete,
+          survey_partial: !complete,
+        },
+      });
+    }
     router.push("/app/map");
     router.refresh();
   }
@@ -105,7 +156,7 @@ export function SurveyRunner({ knockEventId, voter, survey }: Props) {
           <QuestionInput question={current} value={answered} onChange={setAnswer} />
         </div>
       </div>
-      <div className="flex items-center justify-between gap-3 border-t border-border bg-white p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-white p-4">
         <Button
           variant="outline"
           onClick={() => setIndex(Math.max(0, index - 1))}
@@ -113,16 +164,17 @@ export function SurveyRunner({ knockEventId, voter, survey }: Props) {
         >
           Back
         </Button>
-        <div className="flex gap-2">
-          <Button
-            variant="ghost"
-            onClick={() => finish(false)}
-            disabled={submitting}
-          >
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="ghost" onClick={() => finish(false)} disabled={submitting}>
             Save &amp; exit
           </Button>
+          {!current.required ? (
+            <Button variant="ghost" onClick={handleSkip} disabled={submitting}>
+              Skip
+            </Button>
+          ) : null}
           <Button onClick={handleNext} disabled={!canAdvance || submitting} variant="accent">
-            {index + 1 === total ? "Finish" : "Next"}
+            {index + 1 === total ? "Finish" : "Next →"}
           </Button>
         </div>
       </div>

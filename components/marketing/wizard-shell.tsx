@@ -33,7 +33,7 @@ export function WizardShell({
   const percent = Math.round((step / total) * 100);
 
   return (
-    <div className="min-h-screen bg-parchment px-8 py-12">
+    <div className="min-h-screen bg-parchment px-4 py-8 sm:px-8 sm:py-12">
       <div className="mx-auto max-w-[680px]">
         {/* Top bar */}
         <div className="mb-8 flex items-center justify-between">
@@ -68,7 +68,7 @@ export function WizardShell({
         </div>
 
         {/* Card */}
-        <div className="border border-rule bg-white px-11 py-10">
+        <div className="border border-rule bg-white px-5 py-7 sm:px-11 sm:py-10">
           <h2 className="mb-1.5 font-serif text-[28px] font-semibold leading-[1.1] tracking-[-0.01em] text-civic-navy">
             {title}
           </h2>

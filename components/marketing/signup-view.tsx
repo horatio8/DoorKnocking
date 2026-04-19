@@ -60,7 +60,7 @@ export function SignupView({ planName }: { planName: string }) {
   return (
     <div className="grid min-h-screen grid-cols-1 md:grid-cols-2">
       {/* ── Left: form ── */}
-      <div className="flex flex-col justify-center bg-paper px-14 py-16">
+      <div className="flex flex-col justify-center bg-paper px-5 py-10 sm:px-14 sm:py-16">
         <div className="mx-auto w-full max-w-[420px]">
           <Link href="/pricing" className="mb-9 inline-flex items-center gap-2 text-civic-navy no-underline">
             <CampaignOSMark size={22} />
@@ -163,7 +163,7 @@ export function SignupView({ planName }: { planName: string }) {
       </div>
 
       {/* ── Right: navy broadside ── */}
-      <div className="relative bg-civic-navy px-14 py-16 text-parchment">
+      <div className="relative bg-civic-navy px-5 py-10 text-parchment sm:px-14 sm:py-16">
         <div className="absolute right-6 top-6 font-sans text-[10px] tracking-[0.2em] text-parchment/40">
           VOL. I · NO. 47
         </div>
