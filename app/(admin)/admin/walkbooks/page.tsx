@@ -10,6 +10,7 @@ import {
   type WalkbookViz,
 } from "@/components/admin/walkbook-overview-map";
 import { StepBadge } from "@/components/admin/step-badge";
+import { VolunteerFilterChips } from "@/components/admin/volunteer-filter-chips";
 import { walkbookColor } from "@/lib/walkbooks/color";
 import { userInitials, userAvatarBackground, userAvatarForeground } from "@/lib/users/avatar";
 import { formatRelative } from "@/lib/utils";
@@ -19,9 +20,17 @@ export const dynamic = "force-dynamic";
 export default async function AdminWalkbooks({
   searchParams,
 }: {
-  searchParams?: { view?: string };
+  searchParams?: { view?: string; v?: string; u?: string };
 }) {
   const view: "grouped" | "flat" = searchParams?.view === "flat" ? "flat" : "grouped";
+  const selectedVolunteerIds = new Set(
+    (searchParams?.v ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
+  const unassignedSelected = searchParams?.u === "1";
+  const filterActive = selectedVolunteerIds.size > 0 || unassignedSelected;
   const session = await loadSession();
   if (!session) redirect("/login");
   if (session.user.role !== "admin" && session.user.role !== "super_admin") {
@@ -243,6 +252,24 @@ export default async function AdminWalkbooks({
     return a.name.localeCompare(b.name);
   });
   const volunteerCount = groups.filter((g) => g.userId !== null).length;
+  const volunteersForFilter = groups
+    .filter((g) => g.userId !== null)
+    .map((g) => ({
+      id: g.userId!,
+      name: g.name,
+      email: g.email,
+      count: g.walkbooks.length,
+    }));
+  const hasUnassignedGroup = groups.some((g) => g.userId === null);
+
+  const filteredGroups = filterActive
+    ? groups.filter((g) =>
+        g.userId === null ? unassignedSelected : selectedVolunteerIds.has(g.userId),
+      )
+    : groups;
+  const flatList = filterActive
+    ? filteredGroups.flatMap((g) => g.walkbooks)
+    : list;
 
   return (
     <div className="space-y-6">
@@ -359,7 +386,7 @@ export default async function AdminWalkbooks({
         </div>
       ) : (
         <div className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="font-serif text-lg font-semibold text-navy-900">Current walkbooks</h2>
               <p className="text-xs text-muted-foreground">
@@ -367,33 +394,63 @@ export default async function AdminWalkbooks({
                 assigned · {unassignedCount} unassigned
               </p>
             </div>
-            <div className="inline-flex overflow-hidden rounded-full border border-navy-200 text-xs">
+            <div
+              className="inline-flex overflow-hidden rounded-full border border-navy-200 text-sm"
+              role="tablist"
+            >
               <Link
-                href="/admin/walkbooks"
-                className={
+                href={(() => {
+                  const params = new URLSearchParams();
+                  if (selectedVolunteerIds.size > 0)
+                    params.set("v", Array.from(selectedVolunteerIds).join(","));
+                  if (unassignedSelected) params.set("u", "1");
+                  const qs = params.toString();
+                  return `/admin/walkbooks${qs ? `?${qs}` : ""}`;
+                })()}
+                className={`min-w-[120px] px-5 py-2.5 text-center font-medium transition ${
                   view === "grouped"
-                    ? "bg-navy-900 px-3 py-1 text-white"
-                    : "px-3 py-1 text-navy-700 hover:bg-navy-50"
-                }
+                    ? "bg-navy-900 text-white"
+                    : "text-navy-700 hover:bg-navy-50"
+                }`}
               >
                 By volunteer
               </Link>
               <Link
-                href="/admin/walkbooks?view=flat"
-                className={
-                  view === "flat"
-                    ? "bg-navy-900 px-3 py-1 text-white"
-                    : "px-3 py-1 text-navy-700 hover:bg-navy-50"
-                }
+                href={(() => {
+                  const params = new URLSearchParams({ view: "flat" });
+                  if (selectedVolunteerIds.size > 0)
+                    params.set("v", Array.from(selectedVolunteerIds).join(","));
+                  if (unassignedSelected) params.set("u", "1");
+                  return `/admin/walkbooks?${params.toString()}`;
+                })()}
+                className={`min-w-[120px] px-5 py-2.5 text-center font-medium transition ${
+                  view === "flat" ? "bg-navy-900 text-white" : "text-navy-700 hover:bg-navy-50"
+                }`}
               >
                 Flat list
               </Link>
             </div>
           </div>
 
+          {volunteersForFilter.length > 0 || hasUnassignedGroup ? (
+            <VolunteerFilterChips
+              volunteers={volunteersForFilter}
+              hasUnassigned={hasUnassignedGroup}
+              selectedIds={Array.from(selectedVolunteerIds)}
+              unassignedSelected={unassignedSelected}
+              view={view}
+            />
+          ) : null}
+
+          {filterActive && filteredGroups.length === 0 ? (
+            <div className="rounded-md border border-dashed border-border bg-white p-6 text-center text-sm text-muted-foreground">
+              Nothing matches the current filter.
+            </div>
+          ) : null}
+
           {view === "flat" ? (
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {list.map((wb) => (
+              {flatList.map((wb) => (
                 <WalkbookCard
                   key={wb.id}
                   wb={wb}
@@ -406,7 +463,7 @@ export default async function AdminWalkbooks({
             </div>
           ) : (
             <div className="space-y-5">
-              {groups.map((g) => {
+              {filteredGroups.map((g) => {
                 const isUnassigned = g.userId === null;
                 const seed = g.userId ?? g.email ?? g.name;
                 const completionPct =
