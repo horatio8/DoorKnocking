@@ -8,6 +8,7 @@
 // Units: input distances in meters, output minutes (rounded up at the end).
 
 import { haversineMeters } from "@/lib/geo/distance";
+import { normalizeAddress as canonicalAddress } from "@/lib/addresses/normalize";
 
 export interface EstimatorStop {
   id: string;
@@ -112,11 +113,9 @@ function isSameProperty(a: EstimatorStop, b: EstimatorStop): boolean {
   if (!a.neighborhood_id || !b.neighborhood_id) return false;
   if (a.neighborhood_id !== b.neighborhood_id) return false;
   if (!a.address_line1 || !b.address_line1) return false;
-  return normalizeAddress(a.address_line1) === normalizeAddress(b.address_line1);
-}
-
-function normalizeAddress(s: string): string {
-  return s.trim().toLowerCase().replace(/\s+/g, " ");
+  // Canonicalise so "123 Main St" and "123 Main Street" both resolve to one
+  // building — same normaliser as the household match key.
+  return canonicalAddress(a.address_line1) === canonicalAddress(b.address_line1);
 }
 
 function boundingSpreadMeters(stops: EstimatorStop[]): number {

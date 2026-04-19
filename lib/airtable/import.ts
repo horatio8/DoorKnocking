@@ -6,6 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { AirtableClient, type AirtableRecord } from "./client";
 import { geocodeAddress } from "@/lib/geo/mapbox";
 import type { FieldMapping } from "./mapping";
+import { householdKey } from "@/lib/addresses/normalize";
 
 export interface ImportSummary {
   records_fetched: number;
@@ -69,7 +70,7 @@ export function mapRecord(
   const zip = asString(pickValue(fields, mapping.zip)) ?? "";
   const householdRecId =
     asString(pickValue(fields, mapping.household_rec_id)) ??
-    `${address}|${unit ?? ""}|${zip}`.toLowerCase();
+    householdKey({ address, unit, zip });
 
   return {
     voterKey,
