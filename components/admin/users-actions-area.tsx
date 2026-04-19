@@ -98,10 +98,14 @@ function InvitePanel({
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
   const [role, setRole] = useState<"knocker" | "admin">("knocker");
   const [districtId, setDistrictId] = useState<string | null>(
     defaultDistrictId ?? districts[0]?.id ?? null,
   );
+  const [paidCanvasser, setPaidCanvasser] = useState(false);
+  const [passwordMode, setPasswordMode] = useState<"invite" | "now">("invite");
+  const [initialPassword, setInitialPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -120,6 +124,9 @@ function InvitePanel({
         role,
         clientId,
         districtId: role === "knocker" ? districtId : null,
+        phone: phone || undefined,
+        isPaidCanvasser: role === "knocker" ? paidCanvasser : false,
+        initialPassword: passwordMode === "now" ? initialPassword : undefined,
       }),
     });
     const body = await res.json().catch(() => ({}));
@@ -130,11 +137,17 @@ function InvitePanel({
     }
     if (body.status === "linked") {
       setNotice(body.message ?? "Existing user linked to this client.");
+    } else if (body.status === "created") {
+      setNotice(`Account created for ${email}. Share the password securely.`);
     } else {
       setNotice(`Invite sent to ${email}.`);
     }
     setEmail("");
     setFullName("");
+    setPhone("");
+    setPaidCanvasser(false);
+    setInitialPassword("");
+    setPasswordMode("invite");
     router.refresh();
   }
 
@@ -185,7 +198,7 @@ function InvitePanel({
           </select>
         </label>
         {role === "knocker" && districts.length > 0 ? (
-          <label className="text-xs md:col-span-4">
+          <label className="text-xs md:col-span-2">
             <span className="block font-semibold uppercase tracking-widest text-navy-500">
               Default district
             </span>
@@ -202,6 +215,59 @@ function InvitePanel({
             </select>
           </label>
         ) : null}
+
+        <label className="text-xs md:col-span-2">
+          <span className="block font-semibold uppercase tracking-widest text-navy-500">
+            Phone (optional)
+          </span>
+          <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1…" />
+        </label>
+
+        {role === "knocker" ? (
+          <label className="flex items-center gap-2 text-xs md:col-span-4">
+            <input
+              type="checkbox"
+              checked={paidCanvasser}
+              onChange={(e) => setPaidCanvasser(e.target.checked)}
+            />
+            <span>Paid canvasser (GPS required, can&apos;t decline tracking)</span>
+          </label>
+        ) : null}
+
+        <fieldset className="text-xs md:col-span-4">
+          <span className="block font-semibold uppercase tracking-widest text-navy-500">
+            Password
+          </span>
+          <div className="mt-1 flex flex-wrap gap-3">
+            <label className="flex items-center gap-1.5">
+              <input
+                type="radio"
+                name="pwmode"
+                checked={passwordMode === "invite"}
+                onChange={() => setPasswordMode("invite")}
+              />
+              Send invite email
+            </label>
+            <label className="flex items-center gap-1.5">
+              <input
+                type="radio"
+                name="pwmode"
+                checked={passwordMode === "now"}
+                onChange={() => setPasswordMode("now")}
+              />
+              Set password now
+            </label>
+          </div>
+          {passwordMode === "now" ? (
+            <Input
+              type="text"
+              value={initialPassword}
+              onChange={(e) => setInitialPassword(e.target.value)}
+              placeholder="Min 8 characters"
+              className="mt-2"
+            />
+          ) : null}
+        </fieldset>
       </div>
 
       <div className="mt-4 flex items-center gap-2">

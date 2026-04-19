@@ -8,10 +8,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  const { email, fullName, role, districtId, clientId } = await req.json();
+  const {
+    email,
+    fullName,
+    role,
+    districtId,
+    clientId,
+    phone,
+    isPaidCanvasser,
+    initialPassword,
+  } = await req.json();
   const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
   if (!normalizedEmail || !role) {
     return NextResponse.json({ error: "email and role required" }, { status: 400 });
+  }
+  if (typeof initialPassword === "string" && initialPassword.length > 0 && initialPassword.length < 8) {
+    return NextResponse.json({ error: "password must be at least 8 characters" }, { status: 400 });
   }
   if (role === "super_admin" && session.user.role !== "super_admin") {
     return NextResponse.json({ error: "only super admins can create super admins" }, { status: 403 });
@@ -55,17 +67,36 @@ export async function POST(req: Request) {
     });
   }
 
-  // New user — send the invite email.
+  // New user — either create with a password now or send an invite email.
   const origin =
     process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ??
     req.headers.get("origin") ??
     "http://localhost:3000";
-  const { data, error } = await supabase.auth.admin.inviteUserByEmail(normalizedEmail, {
-    data: { full_name: fullName },
-    redirectTo: `${origin}/set-password`,
-  });
-  if (error || !data.user) {
-    return NextResponse.json({ error: error?.message ?? "invite failed" }, { status: 500 });
+
+  let userId: string;
+  let status: "invited" | "created";
+  if (typeof initialPassword === "string" && initialPassword.length > 0) {
+    const { data, error } = await supabase.auth.admin.createUser({
+      email: normalizedEmail,
+      password: initialPassword,
+      email_confirm: true,
+      user_metadata: { full_name: fullName },
+    });
+    if (error || !data.user) {
+      return NextResponse.json({ error: error?.message ?? "create failed" }, { status: 500 });
+    }
+    userId = data.user.id;
+    status = "created";
+  } else {
+    const { data, error } = await supabase.auth.admin.inviteUserByEmail(normalizedEmail, {
+      data: { full_name: fullName },
+      redirectTo: `${origin}/set-password`,
+    });
+    if (error || !data.user) {
+      return NextResponse.json({ error: error?.message ?? "invite failed" }, { status: 500 });
+    }
+    userId = data.user.id;
+    status = "invited";
   }
 
   await supabase
@@ -76,9 +107,13 @@ export async function POST(req: Request) {
       default_district_id: districtId ?? null,
       district_access: districtId ? [districtId] : [],
       client_access: clientId ? [clientId] : [],
+      phone: phone ?? null,
+      is_paid_canvasser: Boolean(isPaidCanvasser),
+      must_change_password: status === "invited",
+      invite_sent_at: status === "invited" ? new Date().toISOString() : null,
       active: true,
     })
-    .eq("id", data.user.id);
+    .eq("id", userId);
 
-  return NextResponse.json({ ok: true, userId: data.user.id, status: "invited" });
+  return NextResponse.json({ ok: true, userId, status });
 }
