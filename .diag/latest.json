@@ -1,5 +1,5 @@
 {
-  "at": "2026-04-19T17:35:04.061Z",
+  "at": "2026-04-19T17:43:47.581Z",
   "env": {
     "has_NEXT_PUBLIC_SUPABASE_URL": true,
     "NEXT_PUBLIC_SUPABASE_URL_host": "wrqydigzshnxvfvbdpkw.supabase.co",
@@ -60,7 +60,7 @@
     "households": 460,
     "walkbooks": 37,
     "walkbook_households": 460,
-    "walkbook_assignments": 20,
+    "walkbook_assignments": 21,
     "walk_time_calibration": 1,
     "walkbook_generation_runs": 4,
     "knock_events": 1,
