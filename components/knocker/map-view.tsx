@@ -15,7 +15,7 @@ import {
 } from "@/lib/types";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { computeBoundingBox, haversineMeters } from "@/lib/geo/distance";
-import { walkbookColorWithGrey } from "@/lib/walkbooks/color";
+import { walkbookColor, walkbookColorWithGrey } from "@/lib/walkbooks/color";
 import { Navigation } from "lucide-react";
 
 mapboxgl.accessToken = publicEnv.mapboxToken;
@@ -24,6 +24,10 @@ interface WalkbookViz {
   id: string;
   name: string;
   stops: Array<{ lat: number; lng: number; order_index: number }>;
+  anchor: { lat: number; lng: number } | null;
+  household_count: number;
+  estimated_duration_minutes: number | null;
+  status: string;
 }
 
 interface MapViewProps {
@@ -277,6 +281,76 @@ export function MapView({
     else map.once("load", apply);
   }, [householdFC, walkbookLinesFC]);
 
+  // Clickable walkbook pins — one <mapboxgl.Marker /> per walkbook anchored
+  // at its centroid (or first stop). Each pin opens a summary popup with an
+  // "Open preview" link.
+  const markersRef = useRef<mapboxgl.Marker[]>([]);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const attach = () => {
+      // Tear down previous markers before re-creating.
+      for (const m of markersRef.current) m.remove();
+      markersRef.current = [];
+
+      for (const w of visibleWalkbooks) {
+        if (!w.anchor) continue;
+        const color = walkbookColor(w.id);
+        const mine = mineSet.has(w.id);
+        const el = document.createElement("button");
+        el.type = "button";
+        el.setAttribute("aria-label", `${w.name} walkbook`);
+        el.style.cssText = [
+          "width:32px",
+          "height:40px",
+          "border:0",
+          "padding:0",
+          "background:transparent",
+          "cursor:pointer",
+          "display:block",
+          "transform:translate(-50%,-100%)",
+        ].join(";");
+        el.innerHTML = pinSvg(color, mine);
+
+        const popup = new mapboxgl.Popup({
+          offset: 32,
+          closeButton: true,
+          maxWidth: "260px",
+        }).setHTML(walkbookSummaryHTML(w, mine));
+
+        const marker = new mapboxgl.Marker({ element: el, anchor: "bottom" })
+          .setLngLat([w.anchor.lng, w.anchor.lat])
+          .setPopup(popup)
+          .addTo(map);
+
+        // Delegate clicks on the "Open preview" link inside the popup.
+        popup.on("open", () => {
+          const node = popup.getElement();
+          if (!node) return;
+          const link = node.querySelector<HTMLAnchorElement>("[data-wb-open]");
+          if (link) {
+            link.addEventListener(
+              "click",
+              (e) => {
+                e.preventDefault();
+                router.push(`/app/walkbooks/${w.id}/preview`);
+              },
+              { once: true },
+            );
+          }
+        });
+
+        markersRef.current.push(marker);
+      }
+    };
+    if (map.isStyleLoaded()) attach();
+    else map.once("load", attach);
+    return () => {
+      for (const m of markersRef.current) m.remove();
+      markersRef.current = [];
+    };
+  }, [visibleWalkbooks, mineSet, router]);
+
   function toggleStatus(s: HouseholdStatus) {
     setStatusFilter((prev) => {
       const next = new Set(prev);
@@ -362,4 +436,59 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) =>
     c === "&" ? "&amp;" : c === "<" ? "&lt;" : c === ">" ? "&gt;" : c === '"' ? "&quot;" : "&#39;",
   );
+}
+
+// Teardrop pin with a white center disc. `mine` thickens the stroke so this
+// knocker's own walkbooks stand out even at low zoom.
+function pinSvg(color: string, mine: boolean): string {
+  const stroke = mine ? "#0B1F3A" : "#ffffff";
+  const strokeW = mine ? 2 : 1.5;
+  return `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 40" width="32" height="40" aria-hidden="true">
+      <path
+        d="M16 1 C7.7 1 1 7.6 1 15.6 c0 11 15 23 15 23 s15-12 15-23 C31 7.6 24.3 1 16 1 z"
+        fill="${color}" stroke="${stroke}" stroke-width="${strokeW}" />
+      <circle cx="16" cy="15.5" r="5.5" fill="#ffffff" />
+    </svg>`;
+}
+
+function walkbookSummaryHTML(
+  w: {
+    id: string;
+    name: string;
+    household_count: number;
+    estimated_duration_minutes: number | null;
+    stops: Array<unknown>;
+    status: string;
+  },
+  mine: boolean,
+): string {
+  const mins = w.estimated_duration_minutes;
+  const statusLabel =
+    w.status === "complete"
+      ? "Complete"
+      : w.status === "in_progress"
+        ? "In progress"
+        : "Open";
+  const statusColor =
+    w.status === "complete" ? "#059669" : w.status === "in_progress" ? "#d97706" : "#0B1F3A";
+  return `
+    <div style="font:13px system-ui;color:#0B1F3A;min-width:200px;padding:2px 2px 0">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+        <strong style="font-size:14px;line-height:1.2;">${escapeHtml(w.name)}</strong>
+        <span style="font-size:10px;padding:1px 6px;border-radius:9999px;background:${statusColor}20;color:${statusColor};white-space:nowrap;text-transform:uppercase;letter-spacing:0.04em;">
+          ${statusLabel}
+        </span>
+      </div>
+      ${mine ? `<div style="margin-top:4px;font-size:11px;color:#059669;">Assigned to you</div>` : ""}
+      <dl style="margin:8px 0 10px;display:grid;grid-template-columns:auto 1fr;gap:2px 8px;font-size:12px;">
+        <dt style="color:#6b7280;">Doors</dt><dd style="margin:0;">${w.household_count}</dd>
+        <dt style="color:#6b7280;">Stops</dt><dd style="margin:0;">${w.stops.length}</dd>
+        ${mins != null ? `<dt style="color:#6b7280;">Estimate</dt><dd style="margin:0;">~${mins} min</dd>` : ""}
+      </dl>
+      <a data-wb-open href="/app/walkbooks/${w.id}/preview"
+         style="display:inline-flex;align-items:center;gap:4px;padding:6px 10px;border-radius:6px;background:#0B1F3A;color:#fff;text-decoration:none;font-size:12px;font-weight:600;">
+        Open preview →
+      </a>
+    </div>`;
 }

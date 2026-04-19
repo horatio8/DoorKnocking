@@ -57,11 +57,27 @@ export default async function MapPage() {
       stopsByWalkbook.set(r.walkbook_id, list);
     }
   }
-  const walkbookViz = walkbooks.map((w) => ({
-    id: w.id,
-    name: w.name,
-    stops: stopsByWalkbook.get(w.id) ?? [],
-  }));
+  const walkbookViz = walkbooks.map((w) => {
+    const stops = stopsByWalkbook.get(w.id) ?? [];
+    // Anchor the map pin at the walkbook's centroid if we have one; fall back
+    // to the first stop so a pin always renders.
+    const anchor = (() => {
+      if (w.centroid_lat != null && w.centroid_lng != null) {
+        return { lat: Number(w.centroid_lat), lng: Number(w.centroid_lng) };
+      }
+      if (stops.length > 0) return { lat: stops[0]!.lat, lng: stops[0]!.lng };
+      return null;
+    })();
+    return {
+      id: w.id,
+      name: w.name,
+      stops,
+      anchor,
+      household_count: w.household_count,
+      estimated_duration_minutes: w.estimated_duration_minutes ?? null,
+      status: w.status,
+    };
+  });
 
   // Which walkbooks belong to this knocker (for the "My walkbooks only" toggle).
   const myWalkbookIds: string[] = [];
