@@ -46,6 +46,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (session.user.role !== "admin" && session.user.role !== "super_admin") {
     redirect("/app");
   }
+  if (session.user.must_change_password) {
+    redirect("/set-password");
+  }
 
   const supabase = getSupabaseServerClient();
   const client = await getActiveClient();

@@ -9,6 +9,8 @@ import { loadSession, type ActiveSession } from "@/lib/auth/session";
 export async function requireOnboardedKnocker(): Promise<ActiveSession> {
   const session = await loadSession();
   if (!session) redirect("/login");
+  // Everyone must set their own password before the app unlocks.
+  if (session.user.must_change_password) redirect("/set-password");
   if (session.user.role === "knocker") {
     if (!session.user.completed_welcome_at) redirect("/app/welcome");
     if (!session.user.gps_consent) redirect("/app/gps-consent");

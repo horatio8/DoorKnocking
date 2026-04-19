@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 export default async function GpsConsentPage() {
   const session = await loadSession();
   if (!session) redirect("/login");
+  if (session.user.must_change_password) redirect("/set-password");
 
   const supabase = getSupabaseServiceRoleClient();
   const { data: profile } = await supabase

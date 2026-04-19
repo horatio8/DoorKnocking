@@ -90,14 +90,24 @@ export function SetPasswordForm() {
       return;
     }
 
-    // Persist profile fields (only meaningful for knockers, but harmless for
-    // admins — they get sensible defaults anyway).
+    // Clear the must-change-password gate + persist profile fields. Admins
+    // get a plain flag-clear; knockers also save their pace/budget answers.
     if (isKnocker) {
       await supabase
         .from("users")
         .update({
           total_time_budget_minutes: totalHours * 60,
           speed_rating: speed,
+          must_change_password: false,
+          first_login_at: new Date().toISOString(),
+        })
+        .eq("id", data.user.id);
+    } else {
+      await supabase
+        .from("users")
+        .update({
+          must_change_password: false,
+          first_login_at: new Date().toISOString(),
         })
         .eq("id", data.user.id);
     }
