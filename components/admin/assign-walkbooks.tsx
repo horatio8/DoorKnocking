@@ -7,6 +7,11 @@ import { ArrowLeft, Lock, Undo2, CheckCircle2, AlertTriangle, Sparkles, X } from
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { computeAssignments } from "@/lib/walkbooks/assign";
+import { walkbookColor } from "@/lib/walkbooks/color";
+import {
+  WalkbookOverviewMap,
+  type WalkbookViz,
+} from "@/components/admin/walkbook-overview-map";
 
 export interface AssignVolunteer {
   id: string;
@@ -38,6 +43,7 @@ interface Props {
   districts: Array<{ id: string; name: string; slug: string }>;
   initialDistrictId: string | null;
   walkbooks: AssignWalkbook[];
+  stopsByWalkbook: Record<string, Array<{ lat: number; lng: number }>>;
   unassignedWalkbookIds: string[];
   activeAssignmentByWalkbook: Record<string, { user_id: string }>;
   volunteers: AssignVolunteer[];
@@ -141,6 +147,20 @@ export function AssignWalkbooksView(props: Props) {
   }
 
   // Filter + sort walkbooks for display.
+  // Map payload — every walkbook in the active district with its stops.
+  const mapWalkbooks: WalkbookViz[] = useMemo(
+    () =>
+      props.walkbooks
+        .filter((w) => w.district_id === districtId)
+        .map((w) => ({
+          id: w.id,
+          name: w.name,
+          stops: props.stopsByWalkbook[w.id] ?? [],
+        }))
+        .filter((w) => w.stops.length > 0),
+    [props.walkbooks, props.stopsByWalkbook, districtId],
+  );
+
   const filteredWalkbooks = useMemo(() => {
     const q = search.trim().toLowerCase();
     let list = props.walkbooks.filter((w) => w.district_id === districtId);
@@ -428,8 +448,14 @@ export function AssignWalkbooksView(props: Props) {
         <h1 className="font-serif text-2xl font-semibold text-navy-900">Assign walkbooks</h1>
         <p className="text-sm text-muted-foreground">
           Distribute work across the knocker roster. Session-locked — only one admin at a time.
+          Checked walkbooks fade to grey on the map so you can see what&apos;s still left.
         </p>
       </div>
+
+      <WalkbookOverviewMap
+        walkbooks={mapWalkbooks}
+        greyedIds={selected}
+      />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         {/* LEFT: unassigned walkbooks */}
@@ -475,16 +501,30 @@ export function AssignWalkbooksView(props: Props) {
               const checked = selected.has(w.id);
               const assignee = assigneeFor(w.id);
               const pendingMarker = pending.has(w.id);
+              const color = checked ? "#9ca3af" : walkbookColor(w.id);
               return (
-                <li key={w.id} className={`flex items-center gap-2 p-2 text-sm ${checked ? "bg-navy-50" : ""}`}>
+                <li
+                  key={w.id}
+                  className={`flex items-center gap-2 border-l-4 p-2 text-sm transition ${
+                    checked ? "bg-navy-50/60" : ""
+                  }`}
+                  style={{ borderLeftColor: color }}
+                >
                   <input
                     type="checkbox"
                     checked={checked}
                     onChange={() => toggleSelected(w.id)}
                     className="flex-none"
                   />
+                  <span
+                    className="h-2.5 w-2.5 flex-none rounded-full"
+                    style={{ backgroundColor: color }}
+                    aria-hidden
+                  />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium text-navy-900">{w.name}</p>
+                    <p className={`truncate font-medium ${checked ? "text-navy-500" : "text-navy-900"}`}>
+                      {w.name}
+                    </p>
                     <p className="text-[11px] text-muted-foreground">
                       {w.household_count} doors · ~
                       {w.estimated_duration_minutes ?? w.target_duration_minutes ?? "?"}m

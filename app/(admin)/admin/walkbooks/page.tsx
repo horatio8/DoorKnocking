@@ -9,6 +9,7 @@ import {
   WalkbookOverviewMap,
   type WalkbookViz,
 } from "@/components/admin/walkbook-overview-map";
+import { walkbookColor } from "@/lib/walkbooks/color";
 import { formatRelative } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -259,15 +260,23 @@ export default async function AdminWalkbooks() {
               <Link
                 key={wb.id}
                 href={`/admin/walkbooks/${wb.id}`}
-                className="group block rounded-lg border border-border bg-white p-4 transition hover:border-navy-300 hover:shadow-sm"
+                className="group block rounded-lg border border-l-4 border-border bg-white p-4 transition hover:border-navy-300 hover:shadow-sm"
+                style={{ borderLeftColor: walkbookColor(wb.id) }}
               >
                 <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="truncate font-medium text-navy-900 group-hover:text-navy-700">
-                      {wb.name}
-                    </p>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="inline-block h-2.5 w-2.5 flex-none rounded-full"
+                        style={{ backgroundColor: walkbookColor(wb.id) }}
+                        aria-hidden
+                      />
+                      <p className="truncate font-medium text-navy-900 group-hover:text-navy-700">
+                        {wb.name}
+                      </p>
+                    </div>
                     {districts.length > 1 && districtNameById.has(wb.district_id) ? (
-                      <p className="text-[10px] uppercase tracking-widest text-navy-500">
+                      <p className="mt-0.5 text-[10px] uppercase tracking-widest text-navy-500">
                         {districtNameById.get(wb.district_id)}
                       </p>
                     ) : null}

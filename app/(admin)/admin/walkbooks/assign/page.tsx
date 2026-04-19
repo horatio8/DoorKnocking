@@ -47,6 +47,7 @@ export default async function AssignWalkbooksPage() {
   }> = [];
   let unassignedIds = new Set<string>();
   let activeAssignmentByWalkbook = new Map<string, { user_id: string }>();
+  const stopsByWalkbook = new Map<string, Array<{ lat: number; lng: number }>>();
   if (districts.length > 0) {
     const districtIds = districts.map((d) => d.id);
     const { data: wbData } = await supabase
@@ -69,6 +70,42 @@ export default async function AssignWalkbooksPage() {
         .is("unassigned_at", null);
       for (const a of (assigns ?? []) as Array<{ walkbook_id: string; user_id: string }>) {
         activeAssignmentByWalkbook.set(a.walkbook_id, { user_id: a.user_id });
+      }
+
+      // Ordered stops for the map overlay.
+      const { data: stopRows } = await supabase
+        .from("walkbook_households")
+        .select("walkbook_id, order_index, household_id")
+        .in("walkbook_id", wbIds)
+        .order("order_index");
+      const allHHIds = Array.from(
+        new Set(
+          ((stopRows ?? []) as Array<{ household_id: string }>).map((r) => r.household_id),
+        ),
+      );
+      const coordById = new Map<string, { lat: number; lng: number }>();
+      const CHUNK = 500;
+      for (let i = 0; i < allHHIds.length; i += CHUNK) {
+        const slice = allHHIds.slice(i, i + CHUNK);
+        const { data } = await supabase
+          .from("households")
+          .select("id, lat, lng")
+          .in("id", slice)
+          .not("lat", "is", null)
+          .not("lng", "is", null);
+        for (const h of (data ?? []) as Array<{ id: string; lat: number; lng: number }>) {
+          coordById.set(h.id, { lat: Number(h.lat), lng: Number(h.lng) });
+        }
+      }
+      for (const r of (stopRows ?? []) as Array<{
+        walkbook_id: string;
+        household_id: string;
+      }>) {
+        const c = coordById.get(r.household_id);
+        if (!c) continue;
+        const list = stopsByWalkbook.get(r.walkbook_id) ?? [];
+        list.push(c);
+        stopsByWalkbook.set(r.walkbook_id, list);
       }
     }
     unassignedIds = new Set(walkbooks.filter((w) => !activeAssignmentByWalkbook.has(w.id)).map((w) => w.id));
@@ -161,12 +198,16 @@ export default async function AssignWalkbooksPage() {
     }));
   }
 
+  const stopsPayload: Record<string, Array<{ lat: number; lng: number }>> =
+    Object.fromEntries(stopsByWalkbook.entries());
+
   return (
     <AssignWalkbooksView
       userId={session.user.id}
       districts={districts}
       initialDistrictId={activeDistrictId}
       walkbooks={walkbooks}
+      stopsByWalkbook={stopsPayload}
       unassignedWalkbookIds={Array.from(unassignedIds)}
       activeAssignmentByWalkbook={Object.fromEntries(activeAssignmentByWalkbook.entries())}
       volunteers={volunteers}

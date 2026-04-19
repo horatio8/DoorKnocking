@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { publicEnv } from "@/lib/env";
+import { walkbookColorWithGrey } from "@/lib/walkbooks/color";
 
 mapboxgl.accessToken = publicEnv.mapboxToken;
 
@@ -19,9 +20,16 @@ export interface WalkbookViz {
 }
 
 // Renders every walkbook's ordered stops + connecting line on one map.
-// Each walkbook gets a distinct hue from a hash of its id so they're
-// visually distinguishable. Auto-fits bounds to all stops.
-export function WalkbookOverviewMap({ walkbooks }: { walkbooks: WalkbookViz[] }) {
+// Each walkbook gets a stable hue from a hash of its id. Walkbooks whose
+// id is in `greyedIds` render in grey instead — used by the assignment
+// screen to indicate "these are selected / being handled".
+export function WalkbookOverviewMap({
+  walkbooks,
+  greyedIds,
+}: {
+  walkbooks: WalkbookViz[];
+  greyedIds?: Set<string>;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
 
@@ -47,28 +55,9 @@ export function WalkbookOverviewMap({ walkbooks }: { walkbooks: WalkbookViz[] })
     mapRef.current = map;
 
     map.on("load", () => {
-      // One combined source for all lines (paint by feature property `color`).
-      const lineFeatures = walkbooks
-        .filter((w) => w.stops.length >= 2)
-        .map((w, i) => ({
-          type: "Feature" as const,
-          properties: { color: colorFor(i, walkbooks.length), name: w.name },
-          geometry: {
-            type: "LineString" as const,
-            coordinates: w.stops.map((s) => [s.lng, s.lat] as [number, number]),
-          },
-        }));
-      const dotFeatures = walkbooks.flatMap((w, i) =>
-        w.stops.map((s) => ({
-          type: "Feature" as const,
-          properties: { color: colorFor(i, walkbooks.length), name: w.name },
-          geometry: { type: "Point" as const, coordinates: [s.lng, s.lat] as [number, number] },
-        })),
-      );
-
       map.addSource("wb-lines", {
         type: "geojson",
-        data: { type: "FeatureCollection", features: lineFeatures },
+        data: { type: "FeatureCollection", features: [] },
       });
       map.addLayer({
         id: "wb-lines",
@@ -83,7 +72,7 @@ export function WalkbookOverviewMap({ walkbooks }: { walkbooks: WalkbookViz[] })
 
       map.addSource("wb-dots", {
         type: "geojson",
-        data: { type: "FeatureCollection", features: dotFeatures },
+        data: { type: "FeatureCollection", features: [] },
       });
       map.addLayer({
         id: "wb-dots",
@@ -124,7 +113,49 @@ export function WalkbookOverviewMap({ walkbooks }: { walkbooks: WalkbookViz[] })
       map.remove();
       mapRef.current = null;
     };
-  }, [walkbooks]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep the map source in sync with props (walkbooks list + grey set)
+  // without tearing down the whole map instance.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const apply = () => {
+      const linesSrc = map.getSource("wb-lines") as mapboxgl.GeoJSONSource | undefined;
+      const dotsSrc = map.getSource("wb-dots") as mapboxgl.GeoJSONSource | undefined;
+      if (!linesSrc || !dotsSrc) return;
+
+      const lineFeatures = walkbooks
+        .filter((w) => w.stops.length >= 2)
+        .map((w) => ({
+          type: "Feature" as const,
+          properties: {
+            color: walkbookColorWithGrey(w.id, greyedIds?.has(w.id) ?? false),
+            name: w.name,
+          },
+          geometry: {
+            type: "LineString" as const,
+            coordinates: w.stops.map((s) => [s.lng, s.lat] as [number, number]),
+          },
+        }));
+      const dotFeatures = walkbooks.flatMap((w) =>
+        w.stops.map((s) => ({
+          type: "Feature" as const,
+          properties: {
+            color: walkbookColorWithGrey(w.id, greyedIds?.has(w.id) ?? false),
+            name: w.name,
+          },
+          geometry: { type: "Point" as const, coordinates: [s.lng, s.lat] as [number, number] },
+        })),
+      );
+
+      linesSrc.setData({ type: "FeatureCollection", features: lineFeatures });
+      dotsSrc.setData({ type: "FeatureCollection", features: dotFeatures });
+    };
+    if (map.isStyleLoaded()) apply();
+    else map.once("load", apply);
+  }, [walkbooks, greyedIds]);
 
   if (walkbooks.length === 0) return null;
   return (
@@ -133,12 +164,6 @@ export function WalkbookOverviewMap({ walkbooks }: { walkbooks: WalkbookViz[] })
       className="h-[500px] w-full overflow-hidden rounded-lg border border-border bg-navy-50"
     />
   );
-}
-
-function colorFor(i: number, total: number): string {
-  // Spread hues evenly; saturation/lightness fixed for visual cohesion.
-  const hue = Math.floor((i * 360) / Math.max(1, total));
-  return `hsl(${hue}, 65%, 45%)`;
 }
 
 function escapeHtml(s: string): string {
