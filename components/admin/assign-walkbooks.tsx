@@ -68,6 +68,7 @@ export function AssignWalkbooksView(props: Props) {
   const [sort, setSort] = useState<"duration" | "doors" | "name">("duration");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selectedVolunteers, setSelectedVolunteers] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<Map<string, string | null>>(new Map());
   const [undoStack, setUndoStack] = useState<PendingChange[][]>([]);
   const [lockState, setLockState] = useState<"checking" | "held" | "blocked" | "released">("checking");
@@ -239,14 +240,31 @@ export function AssignWalkbooksView(props: Props) {
     setSelected(next);
   }
 
-  function assignSelectedTo(userId: string) {
-    if (selected.size === 0) return;
-    // Overload check (soft warning).
-    const vol = props.volunteers.find((v) => v.id === userId);
-    if (vol) {
+  function toggleVolunteer(id: string) {
+    const next = new Set(selectedVolunteers);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedVolunteers(next);
+  }
+
+  // Assigns every currently-selected walkbook across every currently-selected
+  // volunteer. One volunteer → all walkbooks to them. Multiple volunteers →
+  // LPT bin-pack among the selected ones.
+  function assignSelectedToSelectedVolunteers() {
+    if (selected.size === 0 || selectedVolunteers.size === 0) return;
+
+    const selectedVolList = props.volunteers.filter((v) => selectedVolunteers.has(v.id));
+    const selectedWbList = props.walkbooks.filter(
+      (w) => selected.has(w.id) && w.district_id === districtId,
+    );
+    if (selectedVolList.length === 0 || selectedWbList.length === 0) return;
+
+    // Overload warning on single-volunteer path.
+    if (selectedVolList.length === 1) {
+      const vol = selectedVolList[0];
       const factor = SPEED_FACTOR[vol.speed_rating];
       const capacity = vol.total_time_budget_minutes * factor;
-      const currentMinutes = liveVolunteerLoad.get(userId)?.minutes ?? 0;
+      const currentMinutes = liveVolunteerLoad.get(vol.id)?.minutes ?? 0;
       const newMinutes = currentMinutes + selectedMinutes.total;
       if (newMinutes > capacity * 1.1) {
         const pct = Math.round((newMinutes / capacity) * 100);
@@ -256,18 +274,41 @@ export function AssignWalkbooksView(props: Props) {
         if (!confirm(msg)) return;
       }
     }
+
+    // Compute assignments. One-volunteer case is trivial; multi uses LPT.
+    const assignments =
+      selectedVolList.length === 1
+        ? selectedWbList.map((w) => ({ walkbookId: w.id, userId: selectedVolList[0].id }))
+        : computeAssignments(
+            selectedWbList.map((w) => ({
+              id: w.id,
+              durationMinutes: w.estimated_duration_minutes ?? w.target_duration_minutes ?? 0,
+              doors: w.household_count,
+              centroidLat: w.centroid_lat,
+              centroidLng: w.centroid_lng,
+            })),
+            selectedVolList.map((v) => ({
+              id: v.id,
+              totalBudgetMinutes: v.total_time_budget_minutes,
+              speedFactor: SPEED_FACTOR[v.speed_rating],
+            })),
+            { optimizeFor: "time", preferClustering: true },
+          ).assignments;
+
     const changes: PendingChange[] = [];
     const next = new Map(pending);
-    for (const id of selected) {
-      const prev = assigneeFor(id);
-      if (prev === userId) continue;
-      changes.push({ walkbookId: id, userId, previousUserId: prev });
-      next.set(id, userId);
+    for (const a of assignments) {
+      const prev = assigneeFor(a.walkbookId);
+      if (prev === a.userId) continue;
+      changes.push({ walkbookId: a.walkbookId, userId: a.userId, previousUserId: prev });
+      next.set(a.walkbookId, a.userId);
     }
     if (changes.length === 0) return;
     setPending(next);
     setUndoStack([...undoStack, changes]);
     setSelected(new Set());
+    // Keep the volunteer selection so the admin can immediately load a
+    // second batch onto the same people.
   }
 
   function unassignSelected() {
@@ -447,8 +488,9 @@ export function AssignWalkbooksView(props: Props) {
       <div>
         <h1 className="font-serif text-2xl font-semibold text-navy-900">Assign walkbooks</h1>
         <p className="text-sm text-muted-foreground">
-          Distribute work across the knocker roster. Session-locked — only one admin at a time.
-          Checked walkbooks fade to grey on the map so you can see what&apos;s still left.
+          Pick the volunteers on the left, then the walkbooks on the right. One volunteer gets all
+          selected walkbooks; multiple volunteers share them via automatic distribution.
+          Session-locked — only one admin at a time.
         </p>
       </div>
 
@@ -457,8 +499,8 @@ export function AssignWalkbooksView(props: Props) {
         greyedIds={selected}
       />
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        {/* LEFT: unassigned walkbooks */}
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:[&>*:first-child]:order-2 lg:[&>*:last-child]:order-1">
+        {/* Column 2 on desktop — walkbook checklist */}
         <div className="flex max-h-[70vh] flex-col rounded-lg border border-border bg-white">
           <div className="space-y-2 border-b border-border p-3">
             <div className="flex items-center gap-2">
@@ -564,17 +606,30 @@ export function AssignWalkbooksView(props: Props) {
                 </button>
               </div>
             ) : (
-              <span className="text-muted-foreground">Check walkbooks to assign</span>
+              <span className="text-muted-foreground">
+                {selectedVolunteers.size === 0
+                  ? "Pick volunteers first, then check walkbooks"
+                  : `Check walkbooks to assign to the ${selectedVolunteers.size} selected volunteer${selectedVolunteers.size === 1 ? "" : "s"}`}
+              </span>
             )}
           </div>
         </div>
 
-        {/* RIGHT: volunteer roster */}
+        {/* RIGHT: volunteer roster (checkbox-selectable) */}
         <div className="flex max-h-[70vh] flex-col rounded-lg border border-border bg-white">
-          <div className="border-b border-border p-3">
+          <div className="flex items-center justify-between border-b border-border p-3">
             <p className="text-xs font-semibold uppercase tracking-widest text-navy-700">
               Volunteers ({props.volunteers.length})
             </p>
+            {selectedVolunteers.size > 0 ? (
+              <button
+                type="button"
+                onClick={() => setSelectedVolunteers(new Set())}
+                className="text-[11px] text-navy-600 underline"
+              >
+                Clear ({selectedVolunteers.size})
+              </button>
+            ) : null}
           </div>
           <ul className="flex-1 divide-y divide-border overflow-auto">
             {props.volunteers.map((v) => {
@@ -586,49 +641,57 @@ export function AssignWalkbooksView(props: Props) {
               const capacity = v.total_time_budget_minutes * SPEED_FACTOR[v.speed_rating];
               const pct = capacity > 0 ? (load.minutes / capacity) * 100 : 0;
               const barColor = pct > 110 ? "bg-crimson" : pct > 90 ? "bg-amber-500" : "bg-emerald-500";
-              const canAssign =
-                selected.size > 0 &&
+              const eligible =
                 (v.availability === "available" || v.availability === "out_in_field") &&
                 lockState === "held";
+              const checked = selectedVolunteers.has(v.id);
               return (
                 <li key={v.id} className="p-3">
-                  <button
-                    type="button"
-                    disabled={!canAssign}
-                    onClick={() => assignSelectedTo(v.id)}
-                    className={`w-full rounded-md border p-2 text-left transition ${
-                      canAssign
-                        ? "border-navy-200 bg-white hover:border-navy-400 hover:bg-navy-50"
-                        : "border-border bg-navy-50/30 cursor-default"
+                  <label
+                    className={`flex w-full cursor-pointer items-start gap-2 rounded-md border p-2 transition ${
+                      checked
+                        ? "border-navy-900 bg-navy-50"
+                        : eligible
+                          ? "border-navy-200 bg-white hover:border-navy-400"
+                          : "border-border bg-navy-50/30 opacity-60"
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-medium text-navy-900">
-                        {v.full_name ?? v.email}
-                      </p>
-                      <Badge variant={v.availability === "available" ? "success" : "secondary"}>
-                        {v.availability}
-                      </Badge>
-                    </div>
-                    <div className="mt-2">
-                      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                        <span>
-                          {Math.floor(load.minutes / 60)}h {load.minutes % 60}m of{" "}
-                          {Math.round(capacity / 60)}h
-                        </span>
-                        <span>{Math.round(pct)}%</span>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={!eligible}
+                      onChange={() => toggleVolunteer(v.id)}
+                      className="mt-0.5 flex-none"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between">
+                        <p className="truncate text-sm font-medium text-navy-900">
+                          {v.full_name ?? v.email}
+                        </p>
+                        <Badge variant={v.availability === "available" ? "success" : "secondary"}>
+                          {v.availability}
+                        </Badge>
                       </div>
-                      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-navy-100">
-                        <div
-                          className={`h-full transition-all ${barColor}`}
-                          style={{ width: `${Math.min(130, pct)}%` }}
-                        />
+                      <div className="mt-2">
+                        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                          <span>
+                            {Math.floor(load.minutes / 60)}h {load.minutes % 60}m of{" "}
+                            {Math.round(capacity / 60)}h
+                          </span>
+                          <span>{Math.round(pct)}%</span>
+                        </div>
+                        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-navy-100">
+                          <div
+                            className={`h-full transition-all ${barColor}`}
+                            style={{ width: `${Math.min(130, pct)}%` }}
+                          />
+                        </div>
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          {load.count} walkbooks · {load.doors} doors · pace {v.speed_rating}
+                        </p>
                       </div>
-                      <p className="mt-1 text-[11px] text-muted-foreground">
-                        {load.count} walkbooks · {load.doors} doors · pace {v.speed_rating}
-                      </p>
                     </div>
-                  </button>
+                  </label>
                 </li>
               );
             })}
@@ -642,15 +705,39 @@ export function AssignWalkbooksView(props: Props) {
       </div>
 
       {/* Action bar */}
-      <div className="sticky bottom-0 mt-4 flex items-center justify-between gap-3 rounded-lg border border-border bg-white p-3 shadow">
-        <div className="flex items-center gap-2">
+      <div className="sticky bottom-0 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-white p-3 shadow">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            onClick={assignSelectedToSelectedVolunteers}
+            disabled={
+              selected.size === 0 ||
+              selectedVolunteers.size === 0 ||
+              busy ||
+              lockState !== "held"
+            }
+            variant="accent"
+          >
+            {selectedVolunteers.size === 1
+              ? `Assign ${selected.size || ""} → 1 volunteer`
+              : selectedVolunteers.size > 1
+                ? `Distribute ${selected.size || ""} across ${selectedVolunteers.size} volunteers`
+                : "Assign"}
+          </Button>
+          <button
+            type="button"
+            onClick={unassignSelected}
+            disabled={selected.size === 0 || busy}
+            className="inline-flex items-center gap-1 rounded-md border border-navy-200 bg-white px-3 py-1.5 text-xs text-navy-700 hover:bg-navy-50 disabled:opacity-40"
+          >
+            Unassign
+          </button>
           <button
             type="button"
             onClick={() => setAutoOpen(true)}
             disabled={busy || lockState !== "held"}
-            className="inline-flex items-center gap-1 rounded-md bg-navy-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-navy-800 disabled:opacity-40"
+            className="inline-flex items-center gap-1 rounded-md border border-navy-200 bg-white px-3 py-1.5 text-xs text-navy-700 hover:bg-navy-50 disabled:opacity-40"
           >
-            <Sparkles className="h-3 w-3" /> Auto-assign
+            <Sparkles className="h-3 w-3" /> Auto-assign all
           </button>
           <button
             type="button"
@@ -666,7 +753,7 @@ export function AssignWalkbooksView(props: Props) {
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Batch notes (optional)"
             className="rounded border border-navy-200 px-2 py-1 text-xs"
-            style={{ width: 260 }}
+            style={{ width: 220 }}
           />
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
