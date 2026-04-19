@@ -1,5 +1,5 @@
 {
-  "at": "2026-04-19T00:18:04.865Z",
+  "at": "2026-04-19T00:37:40.224Z",
   "env": {
     "has_NEXT_PUBLIC_SUPABASE_URL": true,
     "NEXT_PUBLIC_SUPABASE_URL_host": "wrqydigzshnxvfvbdpkw.supabase.co",
@@ -38,7 +38,7 @@
     {
       "name": "service_role.users_count",
       "ok": true,
-      "detail": "count=5"
+      "detail": "count=6"
     },
     {
       "name": "users.orphan_check",
@@ -55,7 +55,7 @@
     "clients": 1,
     "client_credentials": 1,
     "districts": 1,
-    "users": 5,
+    "users": 6,
     "voters": 460,
     "households": 460,
     "walkbooks": 37,
