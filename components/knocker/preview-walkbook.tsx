@@ -20,6 +20,14 @@ interface WalkbookPreview {
   centroid: { lat: number | null; lng: number | null };
 }
 
+type Pace = "slow" | "medium" | "fast";
+const PACE_MULTIPLIER: Record<Pace, number> = { slow: 0.85, medium: 1.0, fast: 1.2 };
+const PACE_COPY: Record<Pace, string> = {
+  slow: "Slow — plenty of chat",
+  medium: "Medium — steady pace",
+  fast: "Fast — keep it moving",
+};
+
 export function PreviewWalkbook({ walkbook }: { walkbook: WalkbookPreview }) {
   const router = useRouter();
   const [stops, setStops] = useState<PreviewStop[] | null>(null);
@@ -27,6 +35,7 @@ export function PreviewWalkbook({ walkbook }: { walkbook: WalkbookPreview }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [pace, setPace] = useState<Pace>("medium");
 
   useEffect(() => {
     let cancelled = false;
@@ -53,9 +62,29 @@ export function PreviewWalkbook({ walkbook }: { walkbook: WalkbookPreview }) {
   async function start() {
     setStarting(true);
     try {
-      const res = await fetch(`/api/walkbooks/${walkbook.id}/assign`, { method: "POST" });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? `${res.status}`);
+      const assignRes = await fetch(`/api/walkbooks/${walkbook.id}/assign`, { method: "POST" });
+      const assignBody = await assignRes.json();
+      if (!assignRes.ok) throw new Error(assignBody.error ?? `${assignRes.status}`);
+
+      // Kick off a knock_sessions row so GPS pings and duration can be tracked.
+      const sessRes = await fetch("/api/knocker/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          walkbook_id: walkbook.id,
+          pace_multiplier: PACE_MULTIPLIER[pace],
+        }),
+      });
+      const sessBody = await sessRes.json().catch(() => ({}));
+      if (!sessRes.ok) throw new Error(sessBody.error ?? `${sessRes.status}`);
+
+      // Persist pace so admins can see the knocker's declared speed.
+      await fetch("/api/knocker/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ speed_rating: pace, availability: "out_in_field" }),
+      }).catch(() => {});
+
       router.push(`/app/map?walkbook=${walkbook.id}`);
     } catch (e) {
       setError((e as Error).message);
@@ -100,9 +129,32 @@ export function PreviewWalkbook({ walkbook }: { walkbook: WalkbookPreview }) {
         </>
       ) : null}
 
+      <div className="mt-5 rounded-md border border-navy-100 bg-white p-3">
+        <p className="text-xs font-semibold uppercase tracking-widest text-navy-700">Your pace today</p>
+        <div className="mt-2 grid grid-cols-3 gap-2">
+          {(Object.keys(PACE_COPY) as Pace[]).map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => setPace(p)}
+              className={`rounded-md border p-2 text-xs ${
+                pace === p
+                  ? "border-navy-900 bg-navy-900 text-white"
+                  : "border-navy-200 bg-white text-navy-700"
+              }`}
+            >
+              {PACE_COPY[p]}
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          Affects your estimated finish time; you can change it later.
+        </p>
+      </div>
+
       <div className="mt-5 flex gap-2">
         <Button onClick={start} disabled={starting || !stops || stops.length === 0} variant="accent">
-          {starting ? "Starting…" : "Start walkbook"}
+          {starting ? "Starting…" : "Start knock session"}
         </Button>
         <Button variant="outline" onClick={() => router.back()}>
           Back

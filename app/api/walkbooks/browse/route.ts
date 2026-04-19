@@ -51,9 +51,10 @@ export async function GET(req: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const rows = (walkbooks ?? []) as WalkbookRow[];
 
-  // Active assignments (for "in progress" badge).
+  // Active assignments (for "in progress" badge + assigned-to-you surfacing).
   const ids = rows.map((r) => r.id);
   let activeByWalkbook = new Map<string, { user_id: string; full_name: string | null }>();
+  const assignedToMe = new Set<string>();
   if (ids.length > 0) {
     const { data: assigns } = await supabase
       .from("walkbook_assignments")
@@ -67,6 +68,7 @@ export async function GET(req: Request) {
         users: { full_name: string | null } | Array<{ full_name: string | null }> | null;
       }>).map((a) => {
         const u = Array.isArray(a.users) ? a.users[0] : a.users;
+        if (a.user_id === session.user.id) assignedToMe.add(a.walkbook_id);
         return [a.walkbook_id, { user_id: a.user_id, full_name: u?.full_name ?? null }];
       }),
     );
@@ -131,11 +133,14 @@ export async function GET(req: Request) {
         efficiency,
         distanceMeters,
         activeAssignee: active,
+        assignedToYou: assignedToMe.has(w.id),
         gapMinutes,
       };
     });
 
+  // Sort: your assignments first, then fit, then doors remaining, then distance.
   enriched.sort((a, b) => {
+    if (a.assignedToYou !== b.assignedToYou) return a.assignedToYou ? -1 : 1;
     if (a.gapMinutes !== b.gapMinutes) return a.gapMinutes - b.gapMinutes;
     if (a.doorsRemaining !== b.doorsRemaining) return b.doorsRemaining - a.doorsRemaining;
     const ad = a.distanceMeters ?? Infinity;
