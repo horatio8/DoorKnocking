@@ -9,7 +9,8 @@ export async function POST(req: Request) {
   }
 
   const { email, fullName, role, districtId, clientId } = await req.json();
-  if (!email || !role) {
+  const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
+  if (!normalizedEmail || !role) {
     return NextResponse.json({ error: "email and role required" }, { status: 400 });
   }
   if (role === "super_admin" && session.user.role !== "super_admin") {
@@ -17,13 +18,49 @@ export async function POST(req: Request) {
   }
 
   const supabase = getSupabaseServiceRoleClient();
-  // Prefer the configured app URL over the request origin so invites always
-  // land on production even when triggered from a non-public host.
+
+  // Check if this email already has an auth user. If so, just extend their
+  // access arrays (users belong to 1..many clients/districts).
+  const { data: authList } = await supabase.auth.admin.listUsers({ perPage: 1000 });
+  const existing = (authList?.users ?? []).find(
+    (u) => u.email && u.email.toLowerCase() === normalizedEmail,
+  );
+
+  if (existing) {
+    const { data: existingRow } = await supabase
+      .from("users")
+      .select("client_access, district_access, default_district_id")
+      .eq("id", existing.id)
+      .maybeSingle();
+    const clientAccess = new Set(((existingRow?.client_access as string[] | null) ?? []));
+    if (clientId) clientAccess.add(clientId);
+    const districtAccess = new Set(((existingRow?.district_access as string[] | null) ?? []));
+    if (districtId) districtAccess.add(districtId);
+
+    await supabase
+      .from("users")
+      .update({
+        client_access: Array.from(clientAccess),
+        district_access: Array.from(districtAccess),
+        // Don't overwrite an existing default_district — first-client wins.
+        default_district_id: existingRow?.default_district_id ?? districtId ?? null,
+      })
+      .eq("id", existing.id);
+
+    return NextResponse.json({
+      ok: true,
+      userId: existing.id,
+      status: "linked",
+      message: "User already exists — added to this client/district instead of re-inviting.",
+    });
+  }
+
+  // New user — send the invite email.
   const origin =
     process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ??
     req.headers.get("origin") ??
     "http://localhost:3000";
-  const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, {
+  const { data, error } = await supabase.auth.admin.inviteUserByEmail(normalizedEmail, {
     data: { full_name: fullName },
     redirectTo: `${origin}/set-password`,
   });
@@ -31,23 +68,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: error?.message ?? "invite failed" }, { status: 500 });
   }
 
-  // Scope the user to the active client + optional specific district.
-  // Admins get the whole client; knockers usually get one district as a
-  // default but inherit the full client_access for RLS purposes.
-  const clientAccess = clientId ? [clientId] : [];
-  const districtAccess = districtId ? [districtId] : [];
-
   await supabase
     .from("users")
     .update({
       full_name: fullName,
       role,
       default_district_id: districtId ?? null,
-      district_access: districtAccess,
-      client_access: clientAccess,
+      district_access: districtId ? [districtId] : [],
+      client_access: clientId ? [clientId] : [],
       active: true,
     })
     .eq("id", data.user.id);
 
-  return NextResponse.json({ ok: true, userId: data.user.id });
+  return NextResponse.json({ ok: true, userId: data.user.id, status: "invited" });
 }

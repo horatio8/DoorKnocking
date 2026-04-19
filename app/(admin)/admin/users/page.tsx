@@ -5,6 +5,8 @@ import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { getActiveClient } from "@/lib/clients/active";
 import { Badge } from "@/components/ui/badge";
 import { InviteUserForm } from "@/components/admin/invite-user-form";
+import { BatchInviteForm } from "@/components/admin/batch-invite-form";
+import { UserRowActions } from "@/components/admin/user-row-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -107,11 +109,14 @@ export default async function AdminUsers() {
               : "Knockers and admins across the platform."}
           </p>
         </div>
-        <InviteUserForm
-          clientId={activeClient?.id ?? null}
-          districts={districts}
-          defaultDistrictId={session.district?.id ?? districts[0]?.id ?? null}
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <BatchInviteForm clientId={activeClient?.id ?? null} districts={districts} />
+          <InviteUserForm
+            clientId={activeClient?.id ?? null}
+            districts={districts}
+            defaultDistrictId={session.district?.id ?? districts[0]?.id ?? null}
+          />
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-lg border border-border bg-white">
@@ -127,6 +132,7 @@ export default async function AdminUsers() {
               <th className="px-3 py-2 text-left">Load</th>
               <th className="px-3 py-2 text-left">Availability</th>
               <th className="px-3 py-2 text-left">Last seen</th>
+              <th className="px-3 py-2 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -171,12 +177,29 @@ export default async function AdminUsers() {
                   <td className="px-3 py-2 text-xs text-muted-foreground">
                     {u.last_seen_at ? new Date(u.last_seen_at).toLocaleString() : "—"}
                   </td>
+                  <td className="px-3 py-2 text-right">
+                    <UserRowActions
+                      user={{
+                        id: u.id,
+                        full_name: u.full_name,
+                        email: u.email,
+                        role: u.role,
+                        active: u.active,
+                        availability: u.availability,
+                        total_time_budget_minutes: u.total_time_budget_minutes,
+                        speed_rating: u.speed_rating,
+                        default_district_id: u.default_district_id,
+                      }}
+                      districts={districts}
+                      clientId={activeClient?.id ?? null}
+                    />
+                  </td>
                 </tr>
               );
             })}
             {userRows.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-3 py-8 text-center text-xs text-muted-foreground">
+                <td colSpan={10} className="px-3 py-8 text-center text-xs text-muted-foreground">
                   No users yet for this client.{" "}
                   <Link href="#invite" className="underline">
                     Invite your first knocker
