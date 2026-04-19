@@ -42,7 +42,10 @@ export type FunnelEvent =
   | "paywall_viewed"
   | "paywall_completed"
   | "paywall_skipped"
-  | "first_voter_imported";
+  | "first_voter_imported"
+  | "signup_cta_clicked"
+  | "pricing_cta_clicked"
+  | "signin_clicked";
 
 export function trackFunnel(event: FunnelEvent, props?: Record<string, unknown>) {
   if (typeof window === "undefined") return;

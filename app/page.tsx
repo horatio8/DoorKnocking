@@ -1,37 +1,53 @@
-import Link from "next/link";
+import type { Metadata } from "next";
+import { TopBar } from "@/components/home/top-bar";
+import { Hero } from "@/components/home/hero";
+import { TrustStrip } from "@/components/home/trust-strip";
+import { HowItWorks } from "@/components/home/how-it-works";
+import { FeatureWalkbooks } from "@/components/home/feature-walkbooks";
+import { FeatureAI } from "@/components/home/feature-ai";
+import { PricingTeaser } from "@/components/home/pricing-teaser";
+import { Testimonial } from "@/components/home/testimonial";
+import { FAQ } from "@/components/home/faq";
+import { FinalCTA } from "@/components/home/final-cta";
+import { HomeFooter } from "@/components/home/footer";
+
+const DESCRIPTION =
+  "District-agnostic field operations for professional campaign teams. Import a voter file, cut turf, print walkbooks, knock, listen, record — all in one place.";
+
+export const metadata: Metadata = {
+  title: "Knock — Door-knock software for serious campaigns",
+  description: DESCRIPTION,
+  openGraph: {
+    title: "Knock — Door-knock software for serious campaigns",
+    description: DESCRIPTION,
+    type: "website",
+    images: [{ url: "/og/home.png", width: 1200, height: 630, alt: "Knock — Campaign OS" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Knock — Door-knock software for serious campaigns",
+    description: DESCRIPTION,
+    images: ["/og/home.png"],
+  },
+};
+
+// Marketing homepage at /. Per handoff §8: authenticated users still see this
+// page — no auto-redirect to /app.
 
 export default function HomePage() {
   return (
-    <main className="min-h-screen bg-gradient-to-br from-navy-900 via-navy-700 to-navy-500 text-white">
-      <div className="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center px-6 py-16 text-center">
-        <span className="mb-3 rounded-full bg-white/10 px-3 py-1 text-xs uppercase tracking-widest">
-          Campaign OS
-        </span>
-        <h1 className="font-serif text-5xl font-semibold tracking-tight sm:text-6xl">
-          Door Knock Platform
-        </h1>
-        <p className="mt-4 max-w-xl text-lg text-navy-50/90">
-          District-agnostic field operations for professional campaign teams.
-          Knock. Listen. Record. Win.
-        </p>
-        <div className="mt-10 flex flex-col gap-3 sm:flex-row">
-          <Link
-            href="/login"
-            className="rounded-md bg-crimson px-6 py-3 text-base font-semibold text-white shadow-lg transition hover:bg-crimson-700"
-          >
-            Sign in
-          </Link>
-          <Link
-            href="/app"
-            className="rounded-md border border-white/30 bg-white/10 px-6 py-3 text-base font-semibold text-white transition hover:bg-white/20"
-          >
-            Open field app
-          </Link>
-        </div>
-        <p className="mt-16 text-xs text-navy-50/60">
-          Teller Consulting Group · ABN 93 676 364 855
-        </p>
-      </div>
-    </main>
+    <div className="scroll-smooth bg-paper font-sans text-ink antialiased">
+      <TopBar />
+      <Hero />
+      <TrustStrip />
+      <HowItWorks />
+      <FeatureWalkbooks />
+      <FeatureAI />
+      <PricingTeaser />
+      <Testimonial />
+      <FAQ />
+      <FinalCTA />
+      <HomeFooter />
+    </div>
   );
 }

@@ -19,6 +19,9 @@ const ALLOWED_EVENTS = new Set([
   "paywall_completed",
   "paywall_skipped",
   "first_voter_imported",
+  "signup_cta_clicked",
+  "pricing_cta_clicked",
+  "signin_clicked",
 ]);
 
 export async function POST(req: Request) {

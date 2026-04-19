@@ -34,7 +34,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const brandStyle = clientBrandCss(activeClient?.brand);
 
   return (
-    <html lang="en" data-client={activeClient?.slug ?? "apex"}>
+    <html lang="en" className="scroll-smooth" data-client={activeClient?.slug ?? "apex"}>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
