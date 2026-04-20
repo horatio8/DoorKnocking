@@ -1,4 +1,4 @@
-# diag @ 2026-04-20T20:52:07.298Z
+# diag @ 2026-04-20T21:01:27.547Z
 
 ## env
 - has_NEXT_PUBLIC_SUPABASE_URL: true
@@ -29,9 +29,9 @@
 - ❌ migrations.repo_vs_db — Invalid schema: supabase_migrations
 
 ## tables
-- clients: 1
+- clients: 2
 - client_credentials: 1
-- districts: 1
+- districts: 2
 - users: 7
 - voters: 460
 - households: 460
@@ -50,7 +50,7 @@
 
 ## vercel
 - state: READY
-- sha: 97d0c40
+- sha: 7c81cb1
 - target: production
-- created: 2026-04-20T20:51:21Z
-- url: door-knocking-420lm6og4-tellerconsulting.vercel.app
+- created: 2026-04-20T20:52:15Z
+- url: door-knocking-914sd144v-tellerconsulting.vercel.app

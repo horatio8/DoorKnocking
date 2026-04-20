@@ -1,5 +1,5 @@
 {
-  "at": "2026-04-20T20:52:07.298Z",
+  "at": "2026-04-20T21:01:27.547Z",
   "env": {
     "has_NEXT_PUBLIC_SUPABASE_URL": true,
     "NEXT_PUBLIC_SUPABASE_URL_host": "wrqydigzshnxvfvbdpkw.supabase.co",
@@ -52,9 +52,9 @@
     }
   ],
   "tables": {
-    "clients": 1,
+    "clients": 2,
     "client_credentials": 1,
-    "districts": 1,
+    "districts": 2,
     "users": 7,
     "voters": 460,
     "households": 460,
