@@ -16,7 +16,7 @@ import {
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { computeBoundingBox, haversineMeters } from "@/lib/geo/distance";
 import { walkbookColor, walkbookColorWithGrey } from "@/lib/walkbooks/color";
-import { formatWalkbookName } from "@/lib/walkbooks/display-name";
+import { formatWalkbookName, walkbookPinLabel } from "@/lib/walkbooks/display-name";
 import { Navigation } from "lucide-react";
 
 mapboxgl.accessToken = publicEnv.mapboxToken;
@@ -300,12 +300,13 @@ export function MapView({
         if (!w.anchor) continue;
         const color = walkbookColor(w.id);
         const mine = mineSet.has(w.id);
+        const label = walkbookPinLabel(w.name, w.id);
         const el = document.createElement("button");
         el.type = "button";
         el.setAttribute("aria-label", `${w.name} walkbook`);
         el.style.cssText = [
-          "width:32px",
-          "height:40px",
+          "width:36px",
+          "height:44px",
           "border:0",
           "padding:0",
           "background:transparent",
@@ -313,7 +314,7 @@ export function MapView({
           "display:block",
           "transform:translate(-50%,-100%)",
         ].join(";");
-        el.innerHTML = pinSvg(color, mine);
+        el.innerHTML = pinSvg(color, mine, label);
         el.addEventListener("click", (e) => {
           e.stopPropagation();
           setSelectedWalkbookId(w.id);
@@ -626,16 +627,24 @@ function WalkbookSheet({
   );
 }
 
-// Teardrop pin with a white center disc. `mine` thickens the stroke so this
-// knocker's own walkbooks stand out even at low zoom.
-function pinSvg(color: string, mine: boolean): string {
+// Teardrop pin with a white center disc carrying the walkbook's number so
+// the pin is self-identifying when a cluster of walkbooks is visible.
+// `mine` thickens the stroke so this knocker's own walkbooks stand out.
+// The inner disc auto-sizes so 1–3 digit labels all fit without clipping.
+function pinSvg(color: string, mine: boolean, label: string): string {
   const stroke = mine ? "#0B1F3A" : "#ffffff";
   const strokeW = mine ? 2 : 1.5;
+  const discR = label.length >= 3 ? 9 : 8;
+  const fontSize = label.length >= 3 ? 9 : label.length === 2 ? 10 : 12;
+  const safe = label.replace(/[<>&"']/g, "");
   return `
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 40" width="32" height="40" aria-hidden="true">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 44" width="36" height="44" aria-hidden="true">
       <path
-        d="M16 1 C7.7 1 1 7.6 1 15.6 c0 11 15 23 15 23 s15-12 15-23 C31 7.6 24.3 1 16 1 z"
+        d="M18 1 C8.7 1 1 8.4 1 17.2 c0 12.2 17 25.8 17 25.8 s17-13.6 17-25.8 C35 8.4 27.3 1 18 1 z"
         fill="${color}" stroke="${stroke}" stroke-width="${strokeW}" />
-      <circle cx="16" cy="15.5" r="5.5" fill="#ffffff" />
+      <circle cx="18" cy="17" r="${discR}" fill="#ffffff" />
+      <text x="18" y="17" text-anchor="middle" dominant-baseline="central"
+        font-family="'JetBrains Mono','SF Mono',ui-monospace,monospace"
+        font-size="${fontSize}" font-weight="700" fill="${color}">${safe}</text>
     </svg>`;
 }

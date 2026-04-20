@@ -20,3 +20,18 @@ export function formatWalkbookShort(name: string | null | undefined): string {
   if (!m) return name;
   return `WB ${m[2]}`;
 }
+
+// Just the walkbook number — used inside map pins where we only have room
+// for a 2-3 digit numeral. Falls back to a short hash when the name doesn't
+// match the "<district> - <number>" pattern.
+export function walkbookPinLabel(name: string | null | undefined, id?: string): string {
+  if (name) {
+    const m = name.match(PATTERN);
+    if (m) return m[2]!;
+    // Standalone numeric name (e.g. "42") — use it directly.
+    const lone = name.match(/^\d{1,4}$/);
+    if (lone) return name;
+  }
+  if (id) return id.slice(0, 2).toUpperCase();
+  return "·";
+}
