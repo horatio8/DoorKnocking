@@ -213,6 +213,29 @@ export function MapView({
     [visibleWalkbooks, mineSet],
   );
 
+  const walkbookPinsFC = useMemo(
+    () => ({
+      type: "FeatureCollection" as const,
+      features: visibleWalkbooks
+        .filter((w) => w.anchor != null)
+        .map((w) => ({
+          type: "Feature" as const,
+          properties: {
+            id: w.id,
+            name: w.name,
+            color: walkbookColor(w.id),
+            mine: mineSet.has(w.id),
+            label: walkbookPinLabel(w.name, w.id),
+          },
+          geometry: {
+            type: "Point" as const,
+            coordinates: [w.anchor!.lng, w.anchor!.lat] as [number, number],
+          },
+        })),
+    }),
+    [visibleWalkbooks, mineSet],
+  );
+
   // Init map — render walkbook route lines under the household dots. No
   // clustering; individual dots remain clickable at every zoom so knockers
   // can always tap a house.
@@ -259,6 +282,43 @@ export function MapView({
         },
       });
 
+      // Walkbook pin = colored disc + numeric label. One source feeds two
+      // layers so the circle always sits behind the label. Native Mapbox
+      // layers so the pins render reliably at every zoom — previously we
+      // used DOM markers and their positioning was fragile.
+      map.addSource("wb-pins", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: "wb-pin-disc",
+        type: "circle",
+        source: "wb-pins",
+        paint: {
+          "circle-color": ["get", "color"],
+          "circle-radius": 14,
+          "circle-stroke-color": ["case", ["get", "mine"], "#0B1F3A", "#ffffff"],
+          "circle-stroke-width": ["case", ["get", "mine"], 3, 2],
+        },
+      });
+      map.addLayer({
+        id: "wb-pin-label",
+        type: "symbol",
+        source: "wb-pins",
+        layout: {
+          "text-field": ["get", "label"],
+          "text-size": 12,
+          "text-font": ["DIN Offc Pro Bold", "Arial Unicode MS Bold"],
+          "text-allow-overlap": true,
+          "text-ignore-placement": true,
+        },
+        paint: {
+          "text-color": "#ffffff",
+          "text-halo-color": ["get", "color"],
+          "text-halo-width": 1.5,
+        },
+      });
+
       map.on("click", "household-points", (e) => {
         const id = (e.features?.[0]?.properties as { id?: string } | undefined)?.id;
         if (id) router.push(`/app/household/${id}`);
@@ -267,6 +327,8 @@ export function MapView({
       map.on("mouseleave", "household-points", () => (map.getCanvas().style.cursor = ""));
       map.on("mouseenter", "wb-lines", () => (map.getCanvas().style.cursor = "pointer"));
       map.on("mouseleave", "wb-lines", () => (map.getCanvas().style.cursor = ""));
+      map.on("mouseenter", "wb-pin-disc", () => (map.getCanvas().style.cursor = "pointer"));
+      map.on("mouseleave", "wb-pin-disc", () => (map.getCanvas().style.cursor = ""));
     });
     mapRef.current = map;
     return () => map.remove();
@@ -279,75 +341,31 @@ export function MapView({
     const apply = () => {
       (map.getSource("households") as GeoJSONSource | undefined)?.setData(householdFC);
       (map.getSource("wb-lines") as GeoJSONSource | undefined)?.setData(walkbookLinesFC);
+      (map.getSource("wb-pins") as GeoJSONSource | undefined)?.setData(walkbookPinsFC);
     };
     if (map.isStyleLoaded()) apply();
     else map.once("load", apply);
-  }, [householdFC, walkbookLinesFC]);
+  }, [householdFC, walkbookLinesFC, walkbookPinsFC]);
 
-  // Clickable walkbook pins — one <mapboxgl.Marker /> per walkbook anchored
-  // at its centroid (or first stop). Tapping a pin (or its route line)
-  // selects the walkbook: the map isolates it + the React bottom-sheet
-  // below renders the summary, actions, and Open preview link.
-  const markersRef = useRef<mapboxgl.Marker[]>([]);
+  // Tapping a pin or a route line selects the walkbook. Both sources are
+  // native Mapbox layers now — no DOM markers — so positioning is
+  // rock-solid at every zoom and the canvas handles the hit-testing.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const attach = () => {
-      for (const m of markersRef.current) m.remove();
-      markersRef.current = [];
-
-      for (const w of visibleWalkbooks) {
-        if (!w.anchor) continue;
-        const color = walkbookColor(w.id);
-        const mine = mineSet.has(w.id);
-        const label = walkbookPinLabel(w.name, w.id);
-        const el = document.createElement("button");
-        el.type = "button";
-        el.setAttribute("aria-label", `${w.name} walkbook`);
-        // IMPORTANT: no transform here. mapboxgl.Marker with
-        // anchor="bottom" applies its own anchor transform; adding our own
-        // translate(-50%,-100%) stacked on top of it, which was pushing the
-        // pins off the map into the household dots.
-        el.style.cssText = [
-          "width:36px",
-          "height:44px",
-          "border:0",
-          "padding:0",
-          "background:transparent",
-          "cursor:pointer",
-          "line-height:0",
-        ].join(";");
-        el.innerHTML = pinSvg(color, mine, label);
-        el.addEventListener("click", (e) => {
-          e.stopPropagation();
-          setSelectedWalkbookId(w.id);
-        });
-
-        const marker = new mapboxgl.Marker({ element: el, anchor: "bottom" })
-          .setLngLat([w.anchor.lng, w.anchor.lat])
-          .addTo(map);
-        markersRef.current.push(marker);
-      }
-    };
-    if (map.isStyleLoaded()) attach();
-    else map.once("load", attach);
-    return () => {
-      for (const m of markersRef.current) m.remove();
-      markersRef.current = [];
-    };
-  }, [visibleWalkbooks, mineSet]);
-
-  // Tapping a route line also selects the walkbook.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const onClick = (e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) => {
+    const pickFromEvent = (
+      e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] },
+    ) => {
       const id = (e.features?.[0]?.properties as { id?: string } | undefined)?.id;
       if (id) setSelectedWalkbookId(id);
     };
-    map.on("click", "wb-lines", onClick);
+    map.on("click", "wb-lines", pickFromEvent);
+    map.on("click", "wb-pin-disc", pickFromEvent);
+    map.on("click", "wb-pin-label", pickFromEvent);
     return () => {
-      map.off("click", "wb-lines", onClick);
+      map.off("click", "wb-lines", pickFromEvent);
+      map.off("click", "wb-pin-disc", pickFromEvent);
+      map.off("click", "wb-pin-label", pickFromEvent);
     };
   }, []);
 
@@ -630,24 +648,3 @@ function WalkbookSheet({
   );
 }
 
-// Teardrop pin with a white center disc carrying the walkbook's number so
-// the pin is self-identifying when a cluster of walkbooks is visible.
-// `mine` thickens the stroke so this knocker's own walkbooks stand out.
-// The inner disc auto-sizes so 1–3 digit labels all fit without clipping.
-function pinSvg(color: string, mine: boolean, label: string): string {
-  const stroke = mine ? "#0B1F3A" : "#ffffff";
-  const strokeW = mine ? 2 : 1.5;
-  const discR = label.length >= 3 ? 9 : 8;
-  const fontSize = label.length >= 3 ? 9 : label.length === 2 ? 10 : 12;
-  const safe = label.replace(/[<>&"']/g, "");
-  return `
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 44" width="36" height="44" aria-hidden="true">
-      <path
-        d="M18 1 C8.7 1 1 8.4 1 17.2 c0 12.2 17 25.8 17 25.8 s17-13.6 17-25.8 C35 8.4 27.3 1 18 1 z"
-        fill="${color}" stroke="${stroke}" stroke-width="${strokeW}" />
-      <circle cx="18" cy="17" r="${discR}" fill="#ffffff" />
-      <text x="18" y="17" text-anchor="middle" dominant-baseline="central"
-        font-family="'JetBrains Mono','SF Mono',ui-monospace,monospace"
-        font-size="${fontSize}" font-weight="700" fill="${color}">${safe}</text>
-    </svg>`;
-}
