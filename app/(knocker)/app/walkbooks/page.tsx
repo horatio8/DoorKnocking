@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatWalkbookName } from "@/lib/walkbooks/display-name";
 
 export const dynamic = "force-dynamic";
 
@@ -53,7 +54,7 @@ export default async function KnockerWalkbooks() {
             <Link key={w.id} href={`/app/map?walkbook=${w.id}`}>
               <Card className="hover:border-navy-100">
                 <CardHeader>
-                  <CardTitle>{w.name}</CardTitle>
+                  <CardTitle>{formatWalkbookName(w.name)}</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <p className="text-sm text-muted-foreground">

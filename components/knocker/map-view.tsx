@@ -472,7 +472,7 @@ export function MapView({
             className="absolute bottom-6 right-4 z-10 flex items-center gap-2 rounded-full bg-crimson px-5 py-3 text-sm font-semibold text-white shadow-lg hover:bg-crimson-700"
           >
             <Navigation className="h-4 w-4" />
-            Find next
+            Get started →
           </button>
           <div className="absolute bottom-6 left-4 z-10 rounded-md bg-white/90 px-3 py-2 text-xs text-navy-700 shadow">
             {visibleHouseholds.length} houses · {visibleWalkbooks.length}/{walkbooks.length} walkbooks
