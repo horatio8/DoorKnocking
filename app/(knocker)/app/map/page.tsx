@@ -79,16 +79,23 @@ export default async function MapPage() {
     };
   });
 
-  // Which walkbooks belong to this knocker (for the "My walkbooks only" toggle).
+  // Which walkbooks belong to this knocker (for the "My walkbooks only" toggle)
+  // + which of those the knocker self-selected (so DELETE self-assign is enabled).
   const myWalkbookIds: string[] = [];
+  const selfAssignedIds: string[] = [];
   if (walkbooks.length > 0) {
     const { data: mine } = await supabase
       .from("walkbook_assignments")
-      .select("walkbook_id")
+      .select("walkbook_id, assigned_by, user_id")
       .eq("user_id", session.user.id)
       .is("unassigned_at", null);
-    for (const m of (mine ?? []) as Array<{ walkbook_id: string }>) {
+    for (const m of (mine ?? []) as Array<{
+      walkbook_id: string;
+      assigned_by: string | null;
+      user_id: string;
+    }>) {
       myWalkbookIds.push(m.walkbook_id);
+      if (m.assigned_by === session.user.id) selfAssignedIds.push(m.walkbook_id);
     }
   }
 
@@ -100,6 +107,7 @@ export default async function MapPage() {
       walkbooks={walkbooks}
       walkbookViz={walkbookViz}
       myWalkbookIds={myWalkbookIds}
+      selfAssignedIds={selfAssignedIds}
     />
   );
 }

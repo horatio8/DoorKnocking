@@ -38,6 +38,7 @@ interface MapViewProps {
   walkbooks: Walkbook[];
   walkbookViz?: WalkbookViz[];
   myWalkbookIds?: string[];
+  selfAssignedIds?: string[];
 }
 
 // Short labels so all six chips fit in a single row on phones without
@@ -66,12 +67,20 @@ export function MapView({
   walkbooks,
   walkbookViz = [],
   myWalkbookIds = [],
+  selfAssignedIds = [],
 }: MapViewProps) {
   const router = useRouter();
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const [statusFilter, setStatusFilter] = useState<Set<HouseholdStatus>>(new Set(STATUS_OPTIONS));
-  const [myWalkbookOnly, setMyWalkbookOnly] = useState(false);
+  // Default to "my walkbooks" when the knocker has assignments — they're
+  // almost always working their own turf, so showing the entire district on
+  // open is noise. They can flip to "show all" from the toggle.
+  const [myWalkbookOnly, setMyWalkbookOnly] = useState(myWalkbookIds.length > 0);
+  // Tapping a pin or route isolates one walkbook on the map and pops the
+  // bottom-sheet summary. Clearing the selection returns to the filtered
+  // overview.
+  const [selectedWalkbookId, setSelectedWalkbookId] = useState<string | null>(null);
   const [position, setPosition] = useState<{ lat: number; lng: number } | null>(null);
 
   const hydrate = useFieldStore((s) => s.hydrate);
@@ -121,37 +130,48 @@ export function MapView({
     return () => navigator.geolocation.clearWatch(watcher);
   }, []);
 
-  // Which walkbooks to show on the map (respects "mine only" toggle).
+  // Which walkbooks to show on the map. Precedence:
+  //   selectedWalkbookId → just that one
+  //   myWalkbookOnly     → only my assigned walkbooks
+  //   otherwise          → everything
   const mineSet = useMemo(() => new Set(myWalkbookIds), [myWalkbookIds]);
+  const selfAssignedSet = useMemo(() => new Set(selfAssignedIds), [selfAssignedIds]);
   const visibleWalkbooks = useMemo(() => {
+    if (selectedWalkbookId) {
+      return walkbookViz.filter((w) => w.id === selectedWalkbookId);
+    }
     if (!myWalkbookOnly || mineSet.size === 0) return walkbookViz;
     return walkbookViz.filter((w) => mineSet.has(w.id));
-  }, [walkbookViz, myWalkbookOnly, mineSet]);
+  }, [walkbookViz, myWalkbookOnly, mineSet, selectedWalkbookId]);
 
-  // Households to plot — filtered by status, optionally narrowed to this
-  // knocker's walkbooks.
+  // Households to plot — filtered by status, narrowed to:
+  //   selectedWalkbookId → households in that one walkbook only
+  //   myWalkbookOnly     → households in any of my walkbooks
+  //   otherwise          → all households in the district
   const visibleHouseholds = useMemo(() => {
-    const inMyWB = new Set<string>();
-    if (myWalkbookOnly && mineSet.size > 0) {
-      // Approximate: include any household whose coord matches a stop in my
-      // walkbooks. This avoids a separate prop for ids while keeping the
-      // filter precise enough for field use.
+    const inScope = new Set<string>();
+    const scopedWalkbooks: typeof walkbookViz = selectedWalkbookId
+      ? walkbookViz.filter((w) => w.id === selectedWalkbookId)
+      : myWalkbookOnly && mineSet.size > 0
+        ? walkbookViz.filter((w) => mineSet.has(w.id))
+        : [];
+    const scopedOn = selectedWalkbookId || (myWalkbookOnly && mineSet.size > 0);
+    if (scopedOn) {
       const stopKeys = new Set<string>();
-      for (const w of walkbookViz) {
-        if (!mineSet.has(w.id)) continue;
+      for (const w of scopedWalkbooks) {
         for (const s of w.stops) stopKeys.add(`${s.lat.toFixed(5)}|${s.lng.toFixed(5)}`);
       }
       for (const h of Array.from(households.values())) {
         const key = `${Number(h.lat).toFixed(5)}|${Number(h.lng).toFixed(5)}`;
-        if (stopKeys.has(key)) inMyWB.add(h.id);
+        if (stopKeys.has(key)) inScope.add(h.id);
       }
     }
     return Array.from(households.values()).filter((h) => {
       if (!statusFilter.has(h.status)) return false;
-      if (myWalkbookOnly && mineSet.size > 0 && !inMyWB.has(h.id)) return false;
+      if (scopedOn && !inScope.has(h.id)) return false;
       return true;
     });
-  }, [households, statusFilter, myWalkbookOnly, mineSet, walkbookViz]);
+  }, [households, statusFilter, myWalkbookOnly, mineSet, walkbookViz, selectedWalkbookId]);
 
   const householdFC = useMemo(
     () => ({
@@ -245,26 +265,8 @@ export function MapView({
       });
       map.on("mouseenter", "household-points", () => (map.getCanvas().style.cursor = "pointer"));
       map.on("mouseleave", "household-points", () => (map.getCanvas().style.cursor = ""));
-
-      // Hover label on walkbook lines so knockers can see which walkbook
-      // they're looking at at a glance.
-      let linePopup: mapboxgl.Popup | null = null;
-      map.on("mousemove", "wb-lines", (e) => {
-        const f = e.features?.[0];
-        if (!f) return;
-        const name = (f.properties as { name?: string })?.name ?? "";
-        if (linePopup) linePopup.remove();
-        linePopup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false })
-          .setLngLat(e.lngLat)
-          .setHTML(`<div style="font:12px system-ui;color:#0B1F3A;padding:2px 4px">${escapeHtml(formatWalkbookName(name))}</div>`)
-          .addTo(map);
-      });
-      map.on("mouseleave", "wb-lines", () => {
-        if (linePopup) {
-          linePopup.remove();
-          linePopup = null;
-        }
-      });
+      map.on("mouseenter", "wb-lines", () => (map.getCanvas().style.cursor = "pointer"));
+      map.on("mouseleave", "wb-lines", () => (map.getCanvas().style.cursor = ""));
     });
     mapRef.current = map;
     return () => map.remove();
@@ -283,14 +285,14 @@ export function MapView({
   }, [householdFC, walkbookLinesFC]);
 
   // Clickable walkbook pins — one <mapboxgl.Marker /> per walkbook anchored
-  // at its centroid (or first stop). Each pin opens a summary popup with an
-  // "Open preview" link.
+  // at its centroid (or first stop). Tapping a pin (or its route line)
+  // selects the walkbook: the map isolates it + the React bottom-sheet
+  // below renders the summary, actions, and Open preview link.
   const markersRef = useRef<mapboxgl.Marker[]>([]);
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const attach = () => {
-      // Tear down previous markers before re-creating.
       for (const m of markersRef.current) m.remove();
       markersRef.current = [];
 
@@ -312,35 +314,14 @@ export function MapView({
           "transform:translate(-50%,-100%)",
         ].join(";");
         el.innerHTML = pinSvg(color, mine);
-
-        const popup = new mapboxgl.Popup({
-          offset: 32,
-          closeButton: true,
-          maxWidth: "260px",
-        }).setHTML(walkbookSummaryHTML(w, mine));
+        el.addEventListener("click", (e) => {
+          e.stopPropagation();
+          setSelectedWalkbookId(w.id);
+        });
 
         const marker = new mapboxgl.Marker({ element: el, anchor: "bottom" })
           .setLngLat([w.anchor.lng, w.anchor.lat])
-          .setPopup(popup)
           .addTo(map);
-
-        // Delegate clicks on the "Open preview" link inside the popup.
-        popup.on("open", () => {
-          const node = popup.getElement();
-          if (!node) return;
-          const link = node.querySelector<HTMLAnchorElement>("[data-wb-open]");
-          if (link) {
-            link.addEventListener(
-              "click",
-              (e) => {
-                e.preventDefault();
-                router.push(`/app/walkbooks/${w.id}/preview`);
-              },
-              { once: true },
-            );
-          }
-        });
-
         markersRef.current.push(marker);
       }
     };
@@ -350,7 +331,38 @@ export function MapView({
       for (const m of markersRef.current) m.remove();
       markersRef.current = [];
     };
-  }, [visibleWalkbooks, mineSet, router]);
+  }, [visibleWalkbooks, mineSet]);
+
+  // Tapping a route line also selects the walkbook.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const onClick = (e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) => {
+      const id = (e.features?.[0]?.properties as { id?: string } | undefined)?.id;
+      if (id) setSelectedWalkbookId(id);
+    };
+    map.on("click", "wb-lines", onClick);
+    return () => {
+      map.off("click", "wb-lines", onClick);
+    };
+  }, []);
+
+  // Whenever a selection changes, zoom the map to its bounds so the
+  // isolated walkbook fills the viewport.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !selectedWalkbookId) return;
+    const w = walkbookViz.find((v) => v.id === selectedWalkbookId);
+    if (!w || w.stops.length === 0) return;
+    const bounds = new mapboxgl.LngLatBounds();
+    for (const s of w.stops) bounds.extend([s.lng, s.lat]);
+    map.fitBounds(bounds, { padding: 64, maxZoom: 17, duration: 450 });
+  }, [selectedWalkbookId, walkbookViz]);
+
+  const selectedWalkbook = useMemo(
+    () => (selectedWalkbookId ? walkbookViz.find((w) => w.id === selectedWalkbookId) ?? null : null),
+    [selectedWalkbookId, walkbookViz],
+  );
 
   function toggleStatus(s: HouseholdStatus) {
     setStatusFilter((prev) => {
@@ -403,7 +415,7 @@ export function MapView({
             );
           })}
         </div>
-        {mineCount > 0 ? (
+        {mineCount > 0 && !selectedWalkbookId ? (
           <div className="pointer-events-auto mt-1.5 flex justify-center">
             <button
               onClick={() => setMyWalkbookOnly((v) => !v)}
@@ -419,25 +431,198 @@ export function MapView({
             </button>
           </div>
         ) : null}
+        {selectedWalkbookId ? (
+          <div className="pointer-events-auto mt-1.5 flex justify-center">
+            <button
+              onClick={() => setSelectedWalkbookId(null)}
+              className="rounded-full border border-navy-100 bg-white/90 px-3 py-1 text-[11px] font-medium text-navy shadow-sm backdrop-blur"
+            >
+              ← Back to all walkbooks
+            </button>
+          </div>
+        ) : null}
       </div>
 
-      <button
-        onClick={findNext}
-        className="absolute bottom-6 right-4 z-10 flex items-center gap-2 rounded-full bg-crimson px-5 py-3 text-sm font-semibold text-white shadow-lg hover:bg-crimson-700"
-      >
-        <Navigation className="h-4 w-4" />
-        Find next
-      </button>
-      <div className="absolute bottom-6 left-4 z-10 rounded-md bg-white/90 px-3 py-2 text-xs text-navy-700 shadow">
-        {visibleHouseholds.length} houses · {visibleWalkbooks.length}/{walkbooks.length} walkbooks
-      </div>
+      {!selectedWalkbook ? (
+        <>
+          <button
+            onClick={findNext}
+            className="absolute bottom-6 right-4 z-10 flex items-center gap-2 rounded-full bg-crimson px-5 py-3 text-sm font-semibold text-white shadow-lg hover:bg-crimson-700"
+          >
+            <Navigation className="h-4 w-4" />
+            Find next
+          </button>
+          <div className="absolute bottom-6 left-4 z-10 rounded-md bg-white/90 px-3 py-2 text-xs text-navy-700 shadow">
+            {visibleHouseholds.length} houses · {visibleWalkbooks.length}/{walkbooks.length} walkbooks
+          </div>
+        </>
+      ) : (
+        <WalkbookSheet
+          walkbook={selectedWalkbook}
+          mine={mineSet.has(selectedWalkbook.id)}
+          selfAssigned={selfAssignedSet.has(selectedWalkbook.id)}
+          onClose={() => setSelectedWalkbookId(null)}
+          onOpenPreview={() => router.push(`/app/walkbooks/${selectedWalkbook.id}/preview`)}
+          onAfterChange={() => router.refresh()}
+        />
+      )}
     </div>
   );
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) =>
-    c === "&" ? "&amp;" : c === "<" ? "&lt;" : c === ">" ? "&gt;" : c === '"' ? "&quot;" : "&#39;",
+// Bottom sheet that replaces the previous tiny Mapbox popover. Roomier, has
+// real tap targets, and lives above the safe-area so nothing is covered.
+function WalkbookSheet({
+  walkbook,
+  mine,
+  selfAssigned,
+  onClose,
+  onOpenPreview,
+  onAfterChange,
+}: {
+  walkbook: WalkbookViz;
+  mine: boolean;
+  selfAssigned: boolean;
+  onClose: () => void;
+  onOpenPreview: () => void;
+  onAfterChange: () => void;
+}) {
+  const [busy, setBusy] = useState<"assign" | "remove" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function assignToMe() {
+    setBusy("assign");
+    setError(null);
+    try {
+      const res = await fetch(`/api/walkbooks/${walkbook.id}/self-assign`, { method: "POST" });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.message ?? body.error ?? `${res.status}`);
+      onAfterChange();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function removeFromMine() {
+    setBusy("remove");
+    setError(null);
+    try {
+      const res = await fetch(`/api/walkbooks/${walkbook.id}/self-assign`, { method: "DELETE" });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.message ?? body.error ?? `${res.status}`);
+      onAfterChange();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const statusLabel =
+    walkbook.status === "complete"
+      ? "Complete"
+      : walkbook.status === "in_progress"
+        ? "In progress"
+        : "Open";
+
+  return (
+    <div
+      className="pointer-events-auto absolute inset-x-0 bottom-0 z-20 rounded-t-2xl border-t border-navy-100 bg-white p-4 shadow-[0_-8px_30px_-8px_rgba(0,0,0,0.25)]"
+      role="dialog"
+      aria-label="Walkbook summary"
+    >
+      <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-navy-100" aria-hidden />
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-navy-500">
+            {statusLabel}
+            {mine ? " · Assigned to you" : ""}
+          </p>
+          <h2 className="truncate font-serif text-lg font-semibold text-navy-900">
+            {formatWalkbookName(walkbook.name)}
+          </h2>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="flex h-8 w-8 flex-none items-center justify-center rounded-full border border-navy-100 bg-white text-navy-700"
+        >
+          ×
+        </button>
+      </div>
+      <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
+        <div className="rounded-md border border-navy-50 bg-navy-50/40 py-2">
+          <dt className="text-[10px] uppercase tracking-widest text-navy-500">Doors</dt>
+          <dd className="mt-0.5 font-mono text-lg font-semibold tabular-nums text-navy-900">
+            {walkbook.household_count}
+          </dd>
+        </div>
+        <div className="rounded-md border border-navy-50 bg-navy-50/40 py-2">
+          <dt className="text-[10px] uppercase tracking-widest text-navy-500">Stops</dt>
+          <dd className="mt-0.5 font-mono text-lg font-semibold tabular-nums text-navy-900">
+            {walkbook.stops.length}
+          </dd>
+        </div>
+        <div className="rounded-md border border-navy-50 bg-navy-50/40 py-2">
+          <dt className="text-[10px] uppercase tracking-widest text-navy-500">Estimate</dt>
+          <dd className="mt-0.5 font-mono text-lg font-semibold tabular-nums text-navy-900">
+            {walkbook.estimated_duration_minutes != null
+              ? `~${walkbook.estimated_duration_minutes}m`
+              : "—"}
+          </dd>
+        </div>
+      </dl>
+
+      {error ? (
+        <p className="mt-3 rounded bg-crimson/10 px-3 py-2 text-xs text-crimson">{error}</p>
+      ) : null}
+
+      <div className="mt-4 flex flex-col gap-2">
+        <button
+          type="button"
+          onClick={onOpenPreview}
+          className="h-12 rounded-xl bg-navy-900 text-sm font-semibold text-white active:scale-[0.98]"
+        >
+          Open preview →
+        </button>
+        <div className="grid grid-cols-2 gap-2">
+          {mine ? (
+            <button
+              type="button"
+              onClick={removeFromMine}
+              disabled={!selfAssigned || busy !== null}
+              className="h-12 rounded-xl border-2 border-navy-100 bg-white text-sm font-semibold text-navy-700 disabled:opacity-50 active:scale-[0.98]"
+              title={
+                selfAssigned
+                  ? "Remove from my walkbooks"
+                  : "Your admin assigned this — ask them to remove it"
+              }
+            >
+              {busy === "remove" ? "Removing…" : selfAssigned ? "Remove from mine" : "Admin-assigned"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={assignToMe}
+              disabled={busy !== null}
+              className="h-12 rounded-xl border-2 border-navy-900 bg-white text-sm font-semibold text-navy-900 active:scale-[0.98]"
+            >
+              {busy === "assign" ? "Assigning…" : "Assign to me"}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-12 rounded-xl border-2 border-navy-100 bg-white text-sm font-semibold text-navy-700 active:scale-[0.98]"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -453,45 +638,4 @@ function pinSvg(color: string, mine: boolean): string {
         fill="${color}" stroke="${stroke}" stroke-width="${strokeW}" />
       <circle cx="16" cy="15.5" r="5.5" fill="#ffffff" />
     </svg>`;
-}
-
-function walkbookSummaryHTML(
-  w: {
-    id: string;
-    name: string;
-    household_count: number;
-    estimated_duration_minutes: number | null;
-    stops: Array<unknown>;
-    status: string;
-  },
-  mine: boolean,
-): string {
-  const mins = w.estimated_duration_minutes;
-  const statusLabel =
-    w.status === "complete"
-      ? "Complete"
-      : w.status === "in_progress"
-        ? "In progress"
-        : "Open";
-  const statusColor =
-    w.status === "complete" ? "#059669" : w.status === "in_progress" ? "#d97706" : "#0B1F3A";
-  return `
-    <div style="font:13px system-ui;color:#0B1F3A;min-width:200px;padding:2px 2px 0">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
-        <strong style="font-size:14px;line-height:1.2;">${escapeHtml(formatWalkbookName(w.name))}</strong>
-        <span style="font-size:10px;padding:1px 6px;border-radius:9999px;background:${statusColor}20;color:${statusColor};white-space:nowrap;text-transform:uppercase;letter-spacing:0.04em;">
-          ${statusLabel}
-        </span>
-      </div>
-      ${mine ? `<div style="margin-top:4px;font-size:11px;color:#059669;">Assigned to you</div>` : ""}
-      <dl style="margin:8px 0 10px;display:grid;grid-template-columns:auto 1fr;gap:2px 8px;font-size:12px;">
-        <dt style="color:#6b7280;">Doors</dt><dd style="margin:0;">${w.household_count}</dd>
-        <dt style="color:#6b7280;">Stops</dt><dd style="margin:0;">${w.stops.length}</dd>
-        ${mins != null ? `<dt style="color:#6b7280;">Estimate</dt><dd style="margin:0;">~${mins} min</dd>` : ""}
-      </dl>
-      <a data-wb-open href="/app/walkbooks/${w.id}/preview"
-         style="display:inline-flex;align-items:center;gap:4px;padding:6px 10px;border-radius:6px;background:#0B1F3A;color:#fff;text-decoration:none;font-size:12px;font-weight:600;">
-        Open preview →
-      </a>
-    </div>`;
 }

@@ -22,11 +22,23 @@ interface WalkbookPreview {
 }
 
 type Pace = "slow" | "medium" | "fast";
+type Travel = "walking" | "driving";
+
 const PACE_MULTIPLIER: Record<Pace, number> = { slow: 0.85, medium: 1.0, fast: 1.2 };
 const PACE_COPY: Record<Pace, string> = {
-  slow: "Slow — plenty of chat",
-  medium: "Medium — steady pace",
-  fast: "Fast — keep it moving",
+  slow: "Slow",
+  medium: "Medium",
+  fast: "Fast",
+};
+const PACE_HINT: Record<Pace, string> = {
+  slow: "Plenty of chat",
+  medium: "Steady pace",
+  fast: "Keep it moving",
+};
+const TRAVEL_COPY: Record<Travel, string> = { walking: "Walking", driving: "Driving" };
+const TRAVEL_HINT: Record<Travel, string> = {
+  walking: "Dense turf",
+  driving: "Rural / spread out",
 };
 
 export function PreviewWalkbook({ walkbook }: { walkbook: WalkbookPreview }) {
@@ -37,6 +49,7 @@ export function PreviewWalkbook({ walkbook }: { walkbook: WalkbookPreview }) {
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [pace, setPace] = useState<Pace>("medium");
+  const [travel, setTravel] = useState<Travel>("walking");
 
   useEffect(() => {
     let cancelled = false;
@@ -67,7 +80,6 @@ export function PreviewWalkbook({ walkbook }: { walkbook: WalkbookPreview }) {
       const assignBody = await assignRes.json();
       if (!assignRes.ok) throw new Error(assignBody.error ?? `${assignRes.status}`);
 
-      // Kick off a knock_sessions row so GPS pings and duration can be tracked.
       const sessRes = await fetch("/api/knocker/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -79,11 +91,16 @@ export function PreviewWalkbook({ walkbook }: { walkbook: WalkbookPreview }) {
       const sessBody = await sessRes.json().catch(() => ({}));
       if (!sessRes.ok) throw new Error(sessBody.error ?? `${sessRes.status}`);
 
-      // Persist pace so admins can see the knocker's declared speed.
+      // Persist pace so admins can see the knocker's declared plan. (Travel
+      // mode is captured as local session context — the profile endpoint
+      // doesn't store it yet; keep it client-side until we add that column.)
       await fetch("/api/knocker/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ speed_rating: pace, availability: "out_in_field" }),
+        body: JSON.stringify({
+          speed_rating: pace,
+          availability: "out_in_field",
+        }),
       }).catch(() => {});
 
       router.push(`/app/map?walkbook=${walkbook.id}`);
@@ -106,6 +123,83 @@ export function PreviewWalkbook({ walkbook }: { walkbook: WalkbookPreview }) {
           : ""}
       </p>
 
+      {/* Start-plan panel — moved above the stop list so the knocker makes
+          the pace / travel decision before scanning the route. */}
+      <section className="mt-4 rounded-lg border-2 border-navy-100 bg-white p-3">
+        <p className="text-xs font-semibold uppercase tracking-widest text-navy-700">
+          Your plan today
+        </p>
+
+        <p className="mt-3 text-xs font-medium text-navy-600">How are you getting around?</p>
+        <div className="mt-1.5 grid grid-cols-2 gap-2">
+          {(Object.keys(TRAVEL_COPY) as Travel[]).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setTravel(t)}
+              className={`flex min-h-[64px] flex-col items-start justify-center rounded-xl border-2 p-3 text-left transition active:scale-[0.98] ${
+                travel === t
+                  ? "border-navy-900 bg-navy-900 text-white"
+                  : "border-navy-200 bg-white text-navy-900"
+              }`}
+            >
+              <span className="text-sm font-semibold">{TRAVEL_COPY[t]}</span>
+              <span
+                className={`mt-0.5 text-[11px] ${
+                  travel === t ? "text-white/70" : "text-muted-foreground"
+                }`}
+              >
+                {TRAVEL_HINT[t]}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        <p className="mt-4 text-xs font-medium text-navy-600">Your pace</p>
+        <div className="mt-1.5 grid grid-cols-3 gap-2">
+          {(Object.keys(PACE_COPY) as Pace[]).map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => setPace(p)}
+              className={`flex min-h-[64px] flex-col items-center justify-center rounded-xl border-2 p-2 text-center transition active:scale-[0.98] ${
+                pace === p
+                  ? "border-navy-900 bg-navy-900 text-white"
+                  : "border-navy-200 bg-white text-navy-900"
+              }`}
+            >
+              <span className="text-sm font-semibold">{PACE_COPY[p]}</span>
+              <span
+                className={`mt-0.5 text-[11px] ${
+                  pace === p ? "text-white/70" : "text-muted-foreground"
+                }`}
+              >
+                {PACE_HINT[p]}
+              </span>
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          Both settings tune the estimated finish time. Change them later from your profile.
+        </p>
+      </section>
+
+      {/* Sticky primary action so the knocker doesn't have to scroll past the
+          stop list to hit Start. Back stays inline above. */}
+      <div className="mt-4 flex gap-2">
+        <Button variant="outline" onClick={() => router.back()}>
+          Back
+        </Button>
+        <Button
+          onClick={start}
+          disabled={starting || !stops || stops.length === 0}
+          variant="accent"
+          className="flex-1"
+        >
+          {starting ? "Starting…" : "Start knock session"}
+        </Button>
+      </div>
+
       {loading ? <p className="mt-4 text-sm text-muted-foreground">Loading route…</p> : null}
       {error ? (
         <p className="mt-4 rounded bg-crimson/10 px-3 py-2 text-xs text-crimson">{error}</p>
@@ -113,7 +207,7 @@ export function PreviewWalkbook({ walkbook }: { walkbook: WalkbookPreview }) {
 
       {stops ? (
         <>
-          <div className="mt-4 rounded-md border border-navy-100 bg-navy-50/50 p-3 text-xs text-navy-700">
+          <div className="mt-5 rounded-md border border-navy-100 bg-navy-50/50 p-3 text-xs text-navy-700">
             {polyline
               ? `Route optimized via Mapbox walking directions · ${polyline.length} waypoints`
               : "Route shown in straight-line order (Mapbox directions unavailable — will still work in the field)"}
@@ -125,44 +219,14 @@ export function PreviewWalkbook({ walkbook }: { walkbook: WalkbookPreview }) {
                 <span className="flex h-5 w-5 flex-none items-center justify-center rounded-full bg-navy-900 text-[11px] font-semibold text-white">
                   {i + 1}
                 </span>
-                <span className="text-navy-900">{s.address || `${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}`}</span>
+                <span className="text-navy-900">
+                  {s.address || `${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}`}
+                </span>
               </li>
             ))}
           </ol>
         </>
       ) : null}
-
-      <div className="mt-5 rounded-md border border-navy-100 bg-white p-3">
-        <p className="text-xs font-semibold uppercase tracking-widest text-navy-700">Your pace today</p>
-        <div className="mt-2 grid grid-cols-3 gap-2">
-          {(Object.keys(PACE_COPY) as Pace[]).map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => setPace(p)}
-              className={`rounded-md border p-2 text-xs ${
-                pace === p
-                  ? "border-navy-900 bg-navy-900 text-white"
-                  : "border-navy-200 bg-white text-navy-700"
-              }`}
-            >
-              {PACE_COPY[p]}
-            </button>
-          ))}
-        </div>
-        <p className="mt-2 text-[11px] text-muted-foreground">
-          Affects your estimated finish time; you can change it later.
-        </p>
-      </div>
-
-      <div className="mt-5 flex gap-2">
-        <Button onClick={start} disabled={starting || !stops || stops.length === 0} variant="accent">
-          {starting ? "Starting…" : "Start knock session"}
-        </Button>
-        <Button variant="outline" onClick={() => router.back()}>
-          Back
-        </Button>
-      </div>
     </div>
   );
 }
