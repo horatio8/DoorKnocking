@@ -304,6 +304,10 @@ export function MapView({
         const el = document.createElement("button");
         el.type = "button";
         el.setAttribute("aria-label", `${w.name} walkbook`);
+        // IMPORTANT: no transform here. mapboxgl.Marker with
+        // anchor="bottom" applies its own anchor transform; adding our own
+        // translate(-50%,-100%) stacked on top of it, which was pushing the
+        // pins off the map into the household dots.
         el.style.cssText = [
           "width:36px",
           "height:44px",
@@ -311,8 +315,7 @@ export function MapView({
           "padding:0",
           "background:transparent",
           "cursor:pointer",
-          "display:block",
-          "transform:translate(-50%,-100%)",
+          "line-height:0",
         ].join(";");
         el.innerHTML = pinSvg(color, mine, label);
         el.addEventListener("click", (e) => {
