@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { formatWalkbookName } from "@/lib/walkbooks/display-name";
 
 export function SessionWrap({
   sessionId,
@@ -85,7 +86,7 @@ export function SessionWrap({
       </h1>
       {walkbookName ? (
         <p className="text-sm text-muted-foreground">
-          Walkbook: <span className="text-navy-900">{walkbookName}</span>
+          Walkbook: <span className="text-navy-900">{formatWalkbookName(walkbookName)}</span>
         </p>
       ) : null}
 

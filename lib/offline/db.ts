@@ -89,9 +89,19 @@ export async function pendingOutbox(): Promise<OutboxEntry[]> {
   return db.getAllFromIndex("outbox", "byCreated");
 }
 
-export async function pendingOutboxCount(): Promise<number> {
+// Stuck / dead entries (attempts maxed out) are no longer counted here — the
+// sync worker prunes them separately so the badge doesn't sit forever on a
+// number that will never clear.
+export async function pendingOutboxCount(maxAttempts = 10): Promise<number> {
   const db = await getDB();
-  return db.count("outbox");
+  const all = await db.getAll("outbox");
+  return all.filter((e) => e.attempts < maxAttempts).length;
+}
+
+export async function deadOutboxEntries(maxAttempts = 10): Promise<OutboxEntry[]> {
+  const db = await getDB();
+  const all = await db.getAll("outbox");
+  return all.filter((e) => e.attempts >= maxAttempts);
 }
 
 export async function deleteOutbox(id: string) {

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { formatWalkbookName } from "@/lib/walkbooks/display-name";
 
 interface PreviewStop {
   id: string;
@@ -95,7 +96,9 @@ export function PreviewWalkbook({ walkbook }: { walkbook: WalkbookPreview }) {
   return (
     <div className="h-full overflow-y-auto p-4">
       <p className="text-xs uppercase tracking-widest text-navy-500">Preview</p>
-      <h1 className="font-serif text-xl font-semibold text-navy-900">{walkbook.name}</h1>
+      <h1 className="font-serif text-xl font-semibold text-navy-900">
+        {formatWalkbookName(walkbook.name)}
+      </h1>
       <p className="text-sm text-muted-foreground">
         {walkbook.household_count} doors
         {walkbook.estimated_duration_minutes != null

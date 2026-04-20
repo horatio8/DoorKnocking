@@ -2,6 +2,7 @@
 
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
+  deadOutboxEntries,
   deleteOutbox,
   markOutboxAttempt,
   pendingOutbox,
@@ -18,9 +19,25 @@ const TABLE_BY_ENDPOINT: Record<OutboxEntry["endpoint"], string> = {
   voter_note: "voter_notes",
 };
 
-export async function flushOutbox(): Promise<{ flushed: number; failed: number }> {
-  if (typeof window === "undefined") return { flushed: 0, failed: 0 };
-  if (!navigator.onLine) return { flushed: 0, failed: 0 };
+export async function flushOutbox(): Promise<{ flushed: number; failed: number; pruned: number }> {
+  if (typeof window === "undefined") return { flushed: 0, failed: 0, pruned: 0 };
+  if (!navigator.onLine) return { flushed: 0, failed: 0, pruned: 0 };
+
+  // Prune entries that have exhausted their retry budget. These were
+  // silently piling up before — typically RLS rejections the client can
+  // never fix (e.g. a voter_tag for a voter outside district_access).
+  // We log before deleting so the failure is findable in devtools.
+  let pruned = 0;
+  for (const dead of await deadOutboxEntries(MAX_ATTEMPTS)) {
+    console.warn(
+      "[outbox] giving up on stuck entry",
+      dead.endpoint,
+      dead.lastError ?? "(no error recorded)",
+      dead.payload,
+    );
+    await deleteOutbox(dead.id);
+    pruned++;
+  }
 
   const supabase = getSupabaseBrowserClient();
   const entries = await pendingOutbox();
@@ -41,10 +58,12 @@ export async function flushOutbox(): Promise<{ flushed: number; failed: number }
       flushed++;
     } catch (err) {
       failed++;
-      await markOutboxAttempt(entry, (err as Error).message);
+      const message = (err as Error).message;
+      console.warn("[outbox] sync failed", entry.endpoint, message, entry.payload);
+      await markOutboxAttempt(entry, message);
     }
   }
-  return { flushed, failed };
+  return { flushed, failed, pruned };
 }
 
 let interval: ReturnType<typeof setInterval> | null = null;

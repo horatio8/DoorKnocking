@@ -16,6 +16,7 @@ import {
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { computeBoundingBox, haversineMeters } from "@/lib/geo/distance";
 import { walkbookColor, walkbookColorWithGrey } from "@/lib/walkbooks/color";
+import { formatWalkbookName } from "@/lib/walkbooks/display-name";
 import { Navigation } from "lucide-react";
 
 mapboxgl.accessToken = publicEnv.mapboxToken;
@@ -70,7 +71,7 @@ export function MapView({
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const [statusFilter, setStatusFilter] = useState<Set<HouseholdStatus>>(new Set(STATUS_OPTIONS));
-  const [myWalkbookOnly, setMyWalkbookOnly] = useState(myWalkbookIds.length > 0);
+  const [myWalkbookOnly, setMyWalkbookOnly] = useState(false);
   const [position, setPosition] = useState<{ lat: number; lng: number } | null>(null);
 
   const hydrate = useFieldStore((s) => s.hydrate);
@@ -255,7 +256,7 @@ export function MapView({
         if (linePopup) linePopup.remove();
         linePopup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false })
           .setLngLat(e.lngLat)
-          .setHTML(`<div style="font:12px system-ui;color:#0B1F3A;padding:2px 4px">${escapeHtml(name)}</div>`)
+          .setHTML(`<div style="font:12px system-ui;color:#0B1F3A;padding:2px 4px">${escapeHtml(formatWalkbookName(name))}</div>`)
           .addTo(map);
       });
       map.on("mouseleave", "wb-lines", () => {
@@ -412,7 +413,9 @@ export function MapView({
                   : "border-navy-100 bg-white/90 text-navy"
               }`}
             >
-              {myWalkbookOnly ? `Showing my ${mineCount} walkbook${mineCount === 1 ? "" : "s"}` : "Show all walkbooks"}
+              {myWalkbookOnly
+                ? `Showing my ${mineCount} walkbook${mineCount === 1 ? "" : "s"} · Show all`
+                : `Showing all walkbooks · Show my ${mineCount}`}
             </button>
           </div>
         ) : null}
@@ -475,7 +478,7 @@ function walkbookSummaryHTML(
   return `
     <div style="font:13px system-ui;color:#0B1F3A;min-width:200px;padding:2px 2px 0">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
-        <strong style="font-size:14px;line-height:1.2;">${escapeHtml(w.name)}</strong>
+        <strong style="font-size:14px;line-height:1.2;">${escapeHtml(formatWalkbookName(w.name))}</strong>
         <span style="font-size:10px;padding:1px 6px;border-radius:9999px;background:${statusColor}20;color:${statusColor};white-space:nowrap;text-transform:uppercase;letter-spacing:0.04em;">
           ${statusLabel}
         </span>

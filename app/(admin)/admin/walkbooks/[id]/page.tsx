@@ -8,6 +8,7 @@ import {
   WalkbookRouteMap,
   type RouteStop,
 } from "@/components/admin/walkbook-route-map";
+import { formatWalkbookName } from "@/lib/walkbooks/display-name";
 
 export const dynamic = "force-dynamic";
 
@@ -87,7 +88,9 @@ export default async function WalkbookDetail({ params }: { params: { id: string 
       </Link>
 
       <div>
-        <h1 className="font-serif text-2xl font-semibold text-navy-900">{wb.name}</h1>
+        <h1 className="font-serif text-2xl font-semibold text-navy-900">
+          {formatWalkbookName(wb.name)}
+        </h1>
         <p className="text-sm text-muted-foreground">
           {wb.household_count} households · {wb.status}
           {est ? ` · est ${est}m` : ""}

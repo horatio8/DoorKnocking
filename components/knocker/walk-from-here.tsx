@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { formatWalkbookName } from "@/lib/walkbooks/display-name";
 
 const BUDGETS = [30, 60, 90, 120];
 
@@ -140,56 +141,85 @@ export function WalkFromHere({ districtId }: { districtId: string }) {
       ) : null}
 
       {step === "configure" && geo ? (
-        <div className="mt-4 space-y-4">
+        <div className="mt-4 space-y-5">
           <p className="text-xs text-muted-foreground">
             At {geo.lat.toFixed(4)}, {geo.lng.toFixed(4)}
           </p>
           <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-navy-700">Time budget</p>
-            <div className="mt-1 flex flex-wrap gap-2">
-              {BUDGETS.map((b) => (
-                <button
-                  key={b}
-                  type="button"
-                  onClick={() => setBudget(b)}
-                  className={`rounded-full border px-3 py-1 text-xs font-medium ${
-                    budget === b
-                      ? "border-navy-900 bg-navy-900 text-white"
-                      : "border-navy-200 bg-white text-navy-700"
-                  }`}
-                >
-                  {b} min
-                </button>
-              ))}
+            <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-navy-700">
+              How long do you have?
+            </p>
+            <div className="grid grid-cols-4 gap-1.5">
+              {BUDGETS.map((b) => {
+                const active = budget === b;
+                const label = b < 60 ? `${b}m` : `${b / 60}h`;
+                return (
+                  <button
+                    key={b}
+                    type="button"
+                    onClick={() => setBudget(b)}
+                    className={`flex min-h-[56px] items-center justify-center rounded-xl border-2 text-base font-semibold transition active:scale-[0.97] ${
+                      active
+                        ? "border-navy-900 bg-navy-900 text-white"
+                        : "border-navy-200 bg-white text-navy-900"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-2 flex items-center gap-2">
               <input
                 type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                value={budget}
-                onChange={(e) =>
-                  setBudget(Number(e.target.value.replace(/[^0-9]/g, "")) || 0)
-                }
-                className="w-20 rounded border border-navy-200 px-2 py-1 text-center text-sm"
-                aria-label="Custom minutes"
+                inputMode="decimal"
+                pattern="[0-9.]*"
+                value={(budget / 60).toString()}
+                onChange={(e) => {
+                  const raw = e.target.value.replace(/[^0-9.]/g, "");
+                  const hours = Number(raw) || 0;
+                  setBudget(Math.round(hours * 60));
+                }}
+                className="h-12 flex-1 rounded-xl border-2 border-navy-200 bg-white px-3 text-center text-lg font-semibold text-navy-900"
+                aria-label="Custom hours"
               />
+              <span className="text-sm font-medium text-muted-foreground">hours</span>
             </div>
           </div>
 
-          <label className="flex items-center gap-2 text-xs">
+          <label className="flex items-start gap-3 rounded-xl border-2 border-navy-100 bg-white p-3 text-sm">
             <input
               type="checkbox"
               checked={avoidCompleted}
               onChange={(e) => setAvoidCompleted(e.target.checked)}
+              className="mt-0.5 h-5 w-5 accent-navy-900"
             />
-            Avoid houses I&apos;ve already knocked
+            <span>
+              <span className="block font-semibold text-navy-900">
+                Avoid houses I&apos;ve already knocked
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                Skip doors with a prior outcome from this turf.
+              </span>
+            </span>
           </label>
 
-          <div className="flex gap-2">
-            <Button onClick={generate} variant="accent">
-              Generate walkbook
-            </Button>
-            <Button variant="outline" onClick={() => router.back()}>
+          <div className="grid grid-cols-2 gap-2 pt-2">
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={() => router.back()}
+              className="h-12 rounded-xl border-2"
+            >
               Cancel
+            </Button>
+            <Button
+              onClick={generate}
+              variant="accent"
+              size="lg"
+              className="h-12 rounded-xl"
+            >
+              Find my route →
             </Button>
           </div>
         </div>
@@ -202,10 +232,12 @@ export function WalkFromHere({ districtId }: { districtId: string }) {
       {step === "fallback" && fallback ? (
         <div className="mt-4 space-y-3">
           <p className="text-sm text-muted-foreground">
-            No reachable doors within {budget}m of you. The closest walkbook we have is:
+            No reachable doors within {budget < 60 ? `${budget} minutes` : `${budget / 60} hours`} of you. The closest walkbook we have is:
           </p>
-          <div className="rounded-lg border border-navy-200 bg-white p-4">
-            <p className="text-base font-semibold text-navy-900">{fallback.name}</p>
+          <div className="rounded-xl border-2 border-navy-200 bg-white p-4">
+            <p className="text-base font-semibold text-navy-900">
+              {formatWalkbookName(fallback.name)}
+            </p>
             <p className="mt-1 text-xs text-muted-foreground">
               {formatDistance(fallback.distanceMeters)} away · about{" "}
               {Math.max(1, Math.round(fallback.distanceMeters / WALKING_METERS_PER_MIN))} min walk

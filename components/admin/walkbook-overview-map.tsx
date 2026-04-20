@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { publicEnv } from "@/lib/env";
+import { formatWalkbookName } from "@/lib/walkbooks/display-name";
 import { walkbookColorWithGrey } from "@/lib/walkbooks/color";
 
 mapboxgl.accessToken = publicEnv.mapboxToken;
@@ -97,7 +98,7 @@ export function WalkbookOverviewMap({
         if (popup) popup.remove();
         popup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false })
           .setLngLat(coords)
-          .setHTML(`<div style="font:12px system-ui;color:#0B1F3A;padding:2px 4px">${escapeHtml(name)}</div>`)
+          .setHTML(`<div style="font:12px system-ui;color:#0B1F3A;padding:2px 4px">${escapeHtml(formatWalkbookName(name))}</div>`)
           .addTo(map);
       });
       map.on("mouseleave", "wb-dots", () => {

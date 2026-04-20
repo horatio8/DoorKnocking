@@ -12,6 +12,7 @@ import {
 import { StepBadge } from "@/components/admin/step-badge";
 import { VolunteerFilterChips } from "@/components/admin/volunteer-filter-chips";
 import { walkbookColor } from "@/lib/walkbooks/color";
+import { formatWalkbookName } from "@/lib/walkbooks/display-name";
 import { userInitials, userAvatarBackground, userAvatarForeground } from "@/lib/users/avatar";
 import { formatRelative } from "@/lib/utils";
 
@@ -600,7 +601,7 @@ function WalkbookCard({
               aria-hidden
             />
             <p className="truncate font-medium text-navy-900 group-hover:text-navy-700">
-              {wb.name}
+              {formatWalkbookName(wb.name)}
             </p>
           </div>
           {districts.length > 1 && districtNameById.has(wb.district_id) ? (

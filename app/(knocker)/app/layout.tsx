@@ -48,7 +48,7 @@ export default async function KnockerLayout({ children }: { children: React.Reac
         </Link>
         <Link href="/app/me" className="flex flex-col items-center gap-1 py-2 text-xs text-navy-700 hover:text-navy">
           <UserIcon className="h-5 w-5" />
-          My Day
+          Your profile
         </Link>
       </nav>
     </div>

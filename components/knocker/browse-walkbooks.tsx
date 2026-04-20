@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Search } from "lucide-react";
+import { formatWalkbookName } from "@/lib/walkbooks/display-name";
+import { PageNav } from "@/components/knocker/page-nav";
 
 interface BrowseItem {
   id: string;
@@ -118,7 +120,8 @@ export function BrowseWalkbooks({ districtId }: { districtId: string }) {
   }
 
   return (
-    <div className="h-full overflow-y-auto p-4">
+    <div className="flex h-full flex-col">
+      <div className="flex-1 overflow-y-auto p-4">
       <div className="flex items-start justify-between gap-2">
         <div>
           <h1 className="font-serif text-2xl font-semibold text-navy-900">Pick a walkbook</h1>
@@ -193,14 +196,18 @@ export function BrowseWalkbooks({ districtId }: { districtId: string }) {
           <div className="mt-2 flex items-center gap-2">
             <input
               type="text"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              value={budget}
-              onChange={(e) => setBudget(Number(e.target.value.replace(/[^0-9]/g, "")) || 0)}
+              inputMode="decimal"
+              pattern="[0-9.]*"
+              value={(budget / 60).toString()}
+              onChange={(e) => {
+                const raw = e.target.value.replace(/[^0-9.]/g, "");
+                const hours = Number(raw) || 0;
+                setBudget(Math.round(hours * 60));
+              }}
               className="h-12 flex-1 rounded-xl border-2 border-navy-200 bg-white px-3 text-center text-lg font-semibold text-navy-900"
-              aria-label="Custom minutes"
+              aria-label="Custom hours"
             />
-            <span className="text-sm font-medium text-muted-foreground">minutes</span>
+            <span className="text-sm font-medium text-muted-foreground">hours</span>
           </div>
         ) : null}
       </div>
@@ -270,6 +277,11 @@ export function BrowseWalkbooks({ districtId }: { districtId: string }) {
           Walk from here →
         </Link>
       </div>
+      </div>
+      <PageNav
+        prev={{ href: "/app/map", label: "Map" }}
+        next={{ href: "/app/me", label: "Your profile" }}
+      />
     </div>
   );
 }
@@ -303,7 +315,9 @@ function WalkbookCard({
         }`}
       >
         <div className="flex items-baseline justify-between gap-3">
-          <p className="min-w-0 truncate text-base font-semibold text-navy-900">{w.name}</p>
+          <p className="min-w-0 truncate text-base font-semibold text-navy-900">
+            {formatWalkbookName(w.name)}
+          </p>
           <span className="flex-none text-xs font-medium text-muted-foreground">
             ~{w.estimatedMinutes}m
           </span>
