@@ -1,5 +1,5 @@
 {
-  "at": "2026-04-21T10:05:18.931Z",
+  "at": "2026-04-21T11:32:54.232Z",
   "env": {
     "has_NEXT_PUBLIC_SUPABASE_URL": true,
     "NEXT_PUBLIC_SUPABASE_URL_host": "wrqydigzshnxvfvbdpkw.supabase.co",
@@ -18,7 +18,7 @@
     "has_ANTHROPIC_API_KEY": true,
     "has_RESEND_API_KEY": true,
     "has_NEXT_PUBLIC_APP_URL": true,
-    "node_version": "v24.13.0"
+    "node_version": "v24.14.1"
   },
   "checks": [
     {
