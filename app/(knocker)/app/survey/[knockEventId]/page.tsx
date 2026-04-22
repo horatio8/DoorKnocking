@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
@@ -22,7 +23,25 @@ export default async function SurveyPage({ params }: { params: { knockEventId: s
     surveys: (Survey & { survey_questions: SurveyQuestion[] }) | null;
   };
   if (!event.surveys || !event.voters) {
-    redirect("/app/map");
+    // Silent-redirect used to strand the volunteer with no explanation;
+    // a proper empty state is less confusing.
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
+        <h1 className="font-serif text-xl font-semibold text-navy-900">
+          Nothing to survey here.
+        </h1>
+        <p className="max-w-sm text-sm text-muted-foreground">
+          There&rsquo;s no active survey attached to this knock yet. Your answers and notes are
+          safe — ask your admin to publish a survey and try again.
+        </p>
+        <Link
+          href="/app/map"
+          className="inline-flex items-center rounded-md bg-navy-900 px-3 py-2 text-sm font-semibold text-white"
+        >
+          Back to map
+        </Link>
+      </div>
+    );
   }
 
   // Resume support — pull any existing answers for this knock so the

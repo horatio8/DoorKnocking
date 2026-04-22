@@ -9,6 +9,7 @@ import {
   type RouteStop,
 } from "@/components/admin/walkbook-route-map";
 import { formatWalkbookName } from "@/lib/walkbooks/display-name";
+import { WalkbookAttachments } from "@/components/admin/walkbook-attachments";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,7 @@ export default async function WalkbookDetail({ params }: { params: { id: string 
   const { data: walkbook } = await supabase
     .from("walkbooks")
     .select(
-      "id, name, status, household_count, estimated_duration_minutes, target_duration_minutes, kind",
+      "id, name, status, district_id, household_count, estimated_duration_minutes, target_duration_minutes, kind",
     )
     .eq("id", params.id)
     .maybeSingle();
@@ -32,6 +33,7 @@ export default async function WalkbookDetail({ params }: { params: { id: string 
     id: string;
     name: string;
     status: string;
+    district_id: string;
     household_count: number;
     estimated_duration_minutes: number | null;
     target_duration_minutes: number | null;
@@ -79,6 +81,56 @@ export default async function WalkbookDetail({ params }: { params: { id: string 
     ];
   });
 
+  // Available + currently attached surveys / scripts for this walkbook.
+  const [availSurveys, availScripts, attachedSurveys, attachedScripts] = await Promise.all([
+    supabase
+      .from("surveys")
+      .select("id, name, status")
+      .eq("district_id", wb.district_id)
+      .in("status", ["active", "draft"])
+      .order("priority", { ascending: false }),
+    supabase
+      .from("scripts")
+      .select("id, name, status")
+      .eq("district_id", wb.district_id)
+      .in("status", ["active", "draft"])
+      .order("priority", { ascending: false }),
+    supabase
+      .from("walkbook_surveys")
+      .select("survey_id, pinned")
+      .eq("walkbook_id", params.id),
+    supabase
+      .from("walkbook_scripts")
+      .select("script_id, pinned")
+      .eq("walkbook_id", params.id),
+  ]);
+  const surveysAvailable = (availSurveys.data ?? []) as Array<{
+    id: string;
+    name: string;
+    status: string | null;
+  }>;
+  const scriptsAvailable = (availScripts.data ?? []) as Array<{
+    id: string;
+    name: string;
+    status: string | null;
+  }>;
+  const attachedSurveyRows = (attachedSurveys.data ?? []) as Array<{
+    survey_id: string;
+    pinned: boolean;
+  }>;
+  const attachedScriptRows = (attachedScripts.data ?? []) as Array<{
+    script_id: string;
+    pinned: boolean;
+  }>;
+  const surveyInit = {
+    ids: attachedSurveyRows.map((r) => r.survey_id),
+    pinnedId: attachedSurveyRows.find((r) => r.pinned)?.survey_id ?? null,
+  };
+  const scriptInit = {
+    ids: attachedScriptRows.map((r) => r.script_id),
+    pinnedId: attachedScriptRows.find((r) => r.pinned)?.script_id ?? null,
+  };
+
   const est = wb.estimated_duration_minutes ?? wb.target_duration_minutes;
 
   return (
@@ -98,6 +150,21 @@ export default async function WalkbookDetail({ params }: { params: { id: string 
       </div>
 
       <WalkbookRouteMap walkbookId={wb.id} stops={stops} />
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <WalkbookAttachments
+          walkbookId={wb.id}
+          entity="surveys"
+          available={surveysAvailable}
+          initial={surveyInit}
+        />
+        <WalkbookAttachments
+          walkbookId={wb.id}
+          entity="scripts"
+          available={scriptsAvailable}
+          initial={scriptInit}
+        />
+      </div>
 
       <Card>
         <CardHeader>

@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { loadSession } from "@/lib/auth/session";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import type { Household, KnockEvent, Survey, SurveyQuestion, Tag, Voter } from "@/lib/types";
 import { HouseholdDetail } from "@/components/knocker/household-detail";
 import { householdKey } from "@/lib/addresses/normalize";
@@ -13,7 +13,7 @@ export default async function HouseholdPage({ params }: { params: { id: string }
   const session = await loadSession();
   if (!session) redirect("/login");
 
-  const supabase = getSupabaseServerClient();
+  const supabase = getSupabaseServiceRoleClient();
   const { data: household } = await supabase
     .from("households")
     .select("*")
@@ -22,21 +22,13 @@ export default async function HouseholdPage({ params }: { params: { id: string }
   if (!household) notFound();
   const hh = household as Household;
 
-  // Some imports create multiple household rows for the same physical address
-  // (different capitalisation, or the fallback key didn't normalise quite
-  // aggressively enough). Aggregate voters from every household in this
-  // district whose normalized (address, unit, zip) key matches — so a knock
-  // on "1215 Apex Ln" shows every resident registered there, not just the
-  // row the map pin happened to hit.
-  //
-  // This explicitly does NOT merge apartments: rows with distinct unit
-  // values produce distinct keys, so Apt 1 and Apt 2 stay separate.
+  // Cross-row voter aggregation for same-address records (apartments
+  // preserved via the unit segment in the key).
   const targetKey = householdKey({
     address: hh.address_line1,
     unit: hh.unit,
     zip: hh.zip,
   });
-
   const { data: peerRows } = await supabase
     .from("households")
     .select("id, address_line1, unit, zip")
@@ -52,7 +44,52 @@ export default async function HouseholdPage({ params }: { params: { id: string }
   const householdIds = peers.map((p) => p.id);
   const mergedCount = Math.max(0, householdIds.length - 1);
 
-  const [{ data: voters }, { data: recentKnocks }, { data: surveys }, { data: standardTags }] =
+  // Survey resolution precedence (C4):
+  //   1. The walkbook-level attachment for the volunteer's active session's
+  //      walkbook (if they have an open session AND it has chosen_survey_id)
+  //   2. Any walkbook_surveys attachment on that walkbook (pinned wins, else
+  //      highest priority)
+  //   3. The district's active default survey (status='active')
+  //   4. null → graceful "no survey" state
+  const { data: openSession } = await supabase
+    .from("knock_sessions")
+    .select("walkbook_id, chosen_survey_id, chosen_script_id")
+    .eq("user_id", session.user.id)
+    .is("ended_at", null)
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const open = openSession as {
+    walkbook_id: string | null;
+    chosen_survey_id: string | null;
+    chosen_script_id: string | null;
+  } | null;
+
+  let resolvedSurveyId: string | null = open?.chosen_survey_id ?? null;
+
+  if (!resolvedSurveyId && open?.walkbook_id) {
+    const { data: wbSurveys } = await supabase
+      .from("walkbook_surveys")
+      .select("survey_id, pinned, priority")
+      .eq("walkbook_id", open.walkbook_id)
+      .order("pinned", { ascending: false })
+      .order("priority", { ascending: false })
+      .limit(1);
+    resolvedSurveyId = ((wbSurveys ?? []) as Array<{ survey_id: string }>)[0]?.survey_id ?? null;
+  }
+
+  if (!resolvedSurveyId) {
+    const { data: districtActive } = await supabase
+      .from("surveys")
+      .select("id")
+      .eq("district_id", hh.district_id)
+      .eq("status", "active")
+      .order("priority", { ascending: false })
+      .limit(1);
+    resolvedSurveyId = ((districtActive ?? []) as Array<{ id: string }>)[0]?.id ?? null;
+  }
+
+  const [{ data: voters }, { data: recentKnocks }, { data: surveyRow }, { data: standardTags }] =
     await Promise.all([
       supabase
         .from("voters")
@@ -65,12 +102,13 @@ export default async function HouseholdPage({ params }: { params: { id: string }
         .in("household_id", householdIds)
         .order("knocked_at", { ascending: false })
         .limit(10),
-      supabase
-        .from("surveys")
-        .select("*, survey_questions(*)")
-        .eq("district_id", hh.district_id)
-        .eq("active", true)
-        .order("priority", { ascending: false }),
+      resolvedSurveyId
+        ? supabase
+            .from("surveys")
+            .select("*, survey_questions(*)")
+            .eq("id", resolvedSurveyId)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
       supabase
         .from("tags")
         .select("*")
@@ -79,7 +117,9 @@ export default async function HouseholdPage({ params }: { params: { id: string }
         .order("label"),
     ]);
 
-  const activeSurvey = surveys?.[0] as (Survey & { survey_questions: SurveyQuestion[] }) | undefined;
+  const activeSurvey = (surveyRow ?? null) as
+    | (Survey & { survey_questions: SurveyQuestion[] })
+    | null;
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -104,8 +144,10 @@ export default async function HouseholdPage({ params }: { params: { id: string }
           household={hh}
           voters={(voters ?? []) as Voter[]}
           recentKnocks={(recentKnocks ?? []) as KnockEvent[]}
-          survey={activeSurvey ?? null}
+          survey={activeSurvey}
           standardTags={(standardTags ?? []) as Tag[]}
+          sessionScriptId={open?.chosen_script_id ?? null}
+          hasVoiceNoteConsent={Boolean(session.user.voice_note_consent)}
         />
       </div>
     </div>
