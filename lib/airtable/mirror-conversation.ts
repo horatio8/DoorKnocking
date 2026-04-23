@@ -1,5 +1,6 @@
 import { AirtableClient } from "./client";
 import { resolveAirtableTokenForDistrict } from "./credentials";
+import { CONVERSATION_FIELDS } from "./schema";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // Pushes a diarised + summarised conversation into the client's Airtable
@@ -76,21 +77,28 @@ export async function mirrorConversationToAirtable(
     .slice(0, 90_000); // Airtable long-text cap safety
 
   const fields: Record<string, unknown> = {
-    "Voice Note ID": opts.voiceNoteId,
-    "Voter": [voter.airtable_voter_key], // linked field — assumes table schema
-    "Voter Name": voter.display_name,
-    "Recorded At": opts.recordedAt,
-    "Audio URL": opts.audioUrl ?? null,
-    "Transcript": transcriptForField,
+    [CONVERSATION_FIELDS.voiceNoteId]: opts.voiceNoteId,
+    // Linked field: Airtable resolves the primary-field string via typecast.
+    [CONVERSATION_FIELDS.voter]: [voter.airtable_voter_key],
+    [CONVERSATION_FIELDS.voterName]: voter.display_name,
+    [CONVERSATION_FIELDS.recordedAt]: opts.recordedAt,
+    [CONVERSATION_FIELDS.audioUrl]: opts.audioUrl ?? null,
+    [CONVERSATION_FIELDS.transcript]: transcriptForField,
   };
   if (opts.summary) {
     const s = opts.summary as Record<string, unknown>;
-    if (typeof s.one_liner === "string") fields["Summary"] = s.one_liner;
-    if (Array.isArray(s.top_concerns)) fields["Top Concerns"] = (s.top_concerns as unknown[]).join(", ");
-    if (typeof s.committed === "boolean") fields["Committed"] = s.committed;
-    if (Array.isArray(s.tags)) fields["Tags"] = s.tags as unknown[];
-    if (Array.isArray(s.asks)) fields["Asks"] = (s.asks as unknown[]).join(" · ");
-    if (typeof s.sentiment === "string") fields["Sentiment"] = s.sentiment;
+    if (typeof s.one_liner === "string") fields[CONVERSATION_FIELDS.summary] = s.one_liner;
+    if (Array.isArray(s.top_concerns)) {
+      fields[CONVERSATION_FIELDS.topConcerns] = (s.top_concerns as unknown[]).join(", ");
+    }
+    if (typeof s.committed === "boolean") fields[CONVERSATION_FIELDS.committed] = s.committed;
+    if (Array.isArray(s.tags)) {
+      fields[CONVERSATION_FIELDS.tags] = (s.tags as unknown[]).join(", ");
+    }
+    if (Array.isArray(s.asks)) {
+      fields[CONVERSATION_FIELDS.asks] = (s.asks as unknown[]).join(" · ");
+    }
+    if (typeof s.sentiment === "string") fields[CONVERSATION_FIELDS.sentiment] = s.sentiment;
   }
 
   const created = await client.batchCreate(district.airtable_base_id, convTableId, [{ fields }]);
