@@ -9,7 +9,12 @@ import crypto from "node:crypto";
 
 const AIRTABLE_AUTHORIZE_URL = "https://airtable.com/oauth2/v1/authorize";
 const AIRTABLE_TOKEN_URL = "https://airtable.com/oauth2/v1/token";
-const REQUIRED_SCOPES = ["data.records:read", "data.records:write", "schema.bases:read"];
+const REQUIRED_SCOPES = [
+  "data.records:read",
+  "data.records:write",
+  "schema.bases:read",
+  "schema.bases:write",
+];
 const STATE_TTL_MS = 10 * 60 * 1000;
 
 export const AIRTABLE_OAUTH_REQUIRED_SCOPES = REQUIRED_SCOPES;
