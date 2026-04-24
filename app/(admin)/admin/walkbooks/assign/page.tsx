@@ -111,6 +111,40 @@ export default async function AssignWalkbooksPage() {
     unassignedIds = new Set(walkbooks.filter((w) => !activeAssignmentByWalkbook.has(w.id)).map((w) => w.id));
   }
 
+  // Surveys for the active district + the current walkbook→survey
+  // attachments. Fed into Step 3 of the assign view so the admin can
+  // pre-tick what's already attached.
+  let surveys: Array<{ id: string; name: string; status: string; district_id: string }> = [];
+  let surveyAttachmentsByWalkbook: Record<string, string[]> = {};
+  if (districts.length > 0) {
+    const districtIds = districts.map((d) => d.id);
+    const { data: surveyRows } = await supabase
+      .from("surveys")
+      .select("id, name, status, district_id, priority")
+      .in("district_id", districtIds)
+      .in("status", ["active", "draft", "paused"])
+      .order("priority", { ascending: false });
+    surveys = ((surveyRows ?? []) as Array<{
+      id: string;
+      name: string;
+      status: string;
+      district_id: string;
+    }>).map((s) => ({ id: s.id, name: s.name, status: s.status, district_id: s.district_id }));
+
+    const wbIds = walkbooks.map((w) => w.id);
+    if (wbIds.length > 0) {
+      const { data: attachRows } = await supabase
+        .from("walkbook_surveys")
+        .select("walkbook_id, survey_id")
+        .in("walkbook_id", wbIds);
+      for (const r of (attachRows ?? []) as Array<{ walkbook_id: string; survey_id: string }>) {
+        const list = surveyAttachmentsByWalkbook[r.walkbook_id] ?? [];
+        list.push(r.survey_id);
+        surveyAttachmentsByWalkbook[r.walkbook_id] = list;
+      }
+    }
+  }
+
   // Volunteers (knockers) scoped to active client / districts. Plus active load.
   let volunteers: Array<{
     id: string;
@@ -211,6 +245,8 @@ export default async function AssignWalkbooksPage() {
       unassignedWalkbookIds={Array.from(unassignedIds)}
       activeAssignmentByWalkbook={Object.fromEntries(activeAssignmentByWalkbook.entries())}
       volunteers={volunteers}
+      surveys={surveys}
+      surveyAttachmentsByWalkbook={surveyAttachmentsByWalkbook}
     />
   );
 }

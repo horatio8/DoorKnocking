@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Lock, Undo2, CheckCircle2, AlertTriangle, Sparkles, X } from "lucide-react";
+import { ArrowLeft, Lock, Undo2, CheckCircle2, AlertTriangle, Sparkles, X, Plus, ClipboardList } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { computeAssignments } from "@/lib/walkbooks/assign";
@@ -39,6 +39,13 @@ export interface AssignWalkbook {
   centroid_lng: number | null;
 }
 
+export interface AssignSurvey {
+  id: string;
+  name: string;
+  status: string;
+  district_id: string;
+}
+
 interface Props {
   userId: string;
   districts: Array<{ id: string; name: string; slug: string }>;
@@ -48,6 +55,8 @@ interface Props {
   unassignedWalkbookIds: string[];
   activeAssignmentByWalkbook: Record<string, { user_id: string }>;
   volunteers: AssignVolunteer[];
+  surveys: AssignSurvey[];
+  surveyAttachmentsByWalkbook: Record<string, string[]>;
 }
 
 const SPEED_FACTOR: Record<AssignVolunteer["speed_rating"], number> = {
@@ -72,6 +81,11 @@ export function AssignWalkbooksView(props: Props) {
   const [selectedVolunteers, setSelectedVolunteers] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<Map<string, string | null>>(new Map());
   const [undoStack, setUndoStack] = useState<PendingChange[][]>([]);
+  // Walkbook → set of attached survey ids. Initialised from server, then
+  // mutated only for walkbooks the admin has changed during this session.
+  const [pendingSurveyAttachments, setPendingSurveyAttachments] = useState<
+    Map<string, Set<string>>
+  >(new Map());
   const [lockState, setLockState] = useState<"checking" | "held" | "blocked" | "released">("checking");
   const [lockHolder, setLockHolder] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -191,6 +205,80 @@ export function AssignWalkbooksView(props: Props) {
     if (pending.has(wbId)) return pending.get(wbId) ?? null;
     return props.activeAssignmentByWalkbook[wbId]?.user_id ?? null;
   }
+
+  // Effective survey set for a walkbook: pending overrides initial.
+  function effectiveSurveysFor(walkbookId: string): Set<string> {
+    if (pendingSurveyAttachments.has(walkbookId)) {
+      return pendingSurveyAttachments.get(walkbookId)!;
+    }
+    return new Set(props.surveyAttachmentsByWalkbook[walkbookId] ?? []);
+  }
+
+  // Surveys scoped to the active district for the Step 3 picker.
+  const districtSurveys = useMemo(
+    () => props.surveys.filter((s) => s.district_id === districtId),
+    [props.surveys, districtId],
+  );
+
+  // Survey row state across the currently selected walkbooks.
+  // 'all' = every selected walkbook has it, 'some' = some do, 'none' = none do.
+  function surveyCheckState(surveyId: string): {
+    state: "all" | "some" | "none";
+    count: number;
+    total: number;
+  } {
+    if (selected.size === 0) return { state: "none", count: 0, total: 0 };
+    let count = 0;
+    for (const wbId of selected) {
+      if (effectiveSurveysFor(wbId).has(surveyId)) count += 1;
+    }
+    const total = selected.size;
+    return {
+      state: count === 0 ? "none" : count === total ? "all" : "some",
+      count,
+      total,
+    };
+  }
+
+  // Toggle a survey across every currently-selected walkbook. If the survey
+  // is currently on every selected walkbook, remove it from all of them;
+  // otherwise add it to any that don't have it. Stages the change in
+  // pendingSurveyAttachments — actual writes happen on Confirm.
+  function toggleSurveyForSelectedWalkbooks(surveyId: string) {
+    if (selected.size === 0) return;
+    const next = new Map(pendingSurveyAttachments);
+    const { state } = surveyCheckState(surveyId);
+    const shouldAdd = state !== "all";
+    for (const wbId of selected) {
+      const eff = new Set(next.get(wbId) ?? effectiveSurveysFor(wbId));
+      if (shouldAdd) eff.add(surveyId);
+      else eff.delete(surveyId);
+      next.set(wbId, eff);
+    }
+    setPendingSurveyAttachments(next);
+  }
+
+  // Walkbooks whose survey set differs from the server snapshot — these are
+  // what we PUT on confirm.
+  const surveyChangedWalkbookIds = useMemo(() => {
+    const changed: string[] = [];
+    for (const [wbId, eff] of pendingSurveyAttachments) {
+      const original = new Set(props.surveyAttachmentsByWalkbook[wbId] ?? []);
+      if (eff.size !== original.size) {
+        changed.push(wbId);
+        continue;
+      }
+      let same = true;
+      for (const s of eff) {
+        if (!original.has(s)) {
+          same = false;
+          break;
+        }
+      }
+      if (!same) changed.push(wbId);
+    }
+    return changed;
+  }, [pendingSurveyAttachments, props.surveyAttachmentsByWalkbook]);
 
   // Live volunteer load including pending changes.
   const liveVolunteerLoad = useMemo(() => {
@@ -396,34 +484,63 @@ export function AssignWalkbooksView(props: Props) {
   }
 
   async function confirmAll() {
-    if (pending.size === 0) {
+    if (pending.size === 0 && surveyChangedWalkbookIds.length === 0) {
       setError("No pending changes.");
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      const assignments: Array<{ walkbookId: string; userId: string | null }> = [];
-      for (const [walkbookId, userId] of pending) {
-        assignments.push({ walkbookId, userId });
+      // 1. Volunteer assignment batch (only if there are volunteer changes).
+      let assignedCount = 0;
+      if (pending.size > 0) {
+        const assignments: Array<{ walkbookId: string; userId: string | null }> = [];
+        for (const [walkbookId, userId] of pending) {
+          assignments.push({ walkbookId, userId });
+        }
+        const method: "manual" | "auto" | "hybrid" = "manual";
+        const res = await fetch("/api/walkbooks/assign/batch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            districtId,
+            method,
+            notes: notes.trim() || undefined,
+            assignments,
+          }),
+        });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error ?? `${res.status}`);
+        assignedCount = body.walkbookCount ?? assignments.length;
       }
-      // Method = auto if every pending change came from the most recent
-      // auto-assign run (approximated by: was autoOpen used this session?).
-      // Tracked implicitly as 'hybrid' for now when any manual + auto mix.
-      const method: "manual" | "auto" | "hybrid" = "manual";
-      const res = await fetch("/api/walkbooks/assign/batch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          districtId,
-          method,
-          notes: notes.trim() || undefined,
-          assignments,
-        }),
-      });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? `${res.status}`);
-      router.push(`/admin/walkbooks?assigned=${body.walkbookCount}`);
+
+      // 2. Survey-attachment writes per walkbook. PUT replaces the set.
+      // Done in parallel; any failure surfaces in the error banner but
+      // doesn't roll back the volunteer batch (different domains).
+      if (surveyChangedWalkbookIds.length > 0) {
+        const surveyResults = await Promise.all(
+          surveyChangedWalkbookIds.map(async (wbId) => {
+            const ids = Array.from(pendingSurveyAttachments.get(wbId) ?? []);
+            const res = await fetch(`/api/admin/walkbooks/${wbId}/surveys`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ids }),
+            });
+            const body = await res.json().catch(() => ({}));
+            return { wbId, ok: res.ok, error: body.error as string | undefined };
+          }),
+        );
+        const failed = surveyResults.filter((r) => !r.ok);
+        if (failed.length > 0) {
+          throw new Error(
+            `Survey changes failed for ${failed.length} walkbook(s): ${failed
+              .map((f) => f.error ?? "unknown")
+              .join("; ")}`,
+          );
+        }
+      }
+
+      router.push(`/admin/walkbooks?assigned=${assignedCount}`);
       router.refresh();
     } catch (e) {
       setError((e as Error).message);
@@ -728,6 +845,128 @@ export function AssignWalkbooksView(props: Props) {
         </div>
       </div>
 
+      {/* Step 3 — surveys */}
+      <div
+        className={`rounded-lg border bg-white transition ${
+          selected.size === 0 ? "border-border opacity-60" : "border-navy-200"
+        }`}
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border p-3">
+          <div className="flex items-start gap-2">
+            <StepBadge number={3} active={selected.size > 0} />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-navy-900">Select surveys</p>
+              <p className="text-[11px] text-muted-foreground">
+                {selected.size === 0
+                  ? "Pick walkbooks first — surveys unlock once step 2 has at least one walkbook checked."
+                  : `Toggle surveys to attach across the ${selected.size} selected walkbook${
+                      selected.size === 1 ? "" : "s"
+                    }. Already-attached surveys are pre-checked.`}
+              </p>
+            </div>
+          </div>
+          {surveyChangedWalkbookIds.length > 0 ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
+              <AlertTriangle className="h-3 w-3" />
+              {surveyChangedWalkbookIds.length} walkbook
+              {surveyChangedWalkbookIds.length === 1 ? "" : "s"} with pending survey changes
+            </span>
+          ) : null}
+        </div>
+
+        {districtSurveys.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 p-8 text-center">
+            <ClipboardList className="h-8 w-8 text-navy-300" />
+            <div>
+              <p className="text-sm font-semibold text-navy-900">No surveys yet</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                You haven&rsquo;t built a survey for this district. Volunteers will only log a knock
+                status without one.
+              </p>
+            </div>
+            <a
+              href="/admin/surveys/new"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 rounded-md bg-navy-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-navy-800"
+            >
+              <Plus className="h-3 w-3" /> Create survey
+            </a>
+          </div>
+        ) : (
+          <ul className="divide-y divide-border">
+            {districtSurveys.map((s) => {
+              const { state, count, total } = surveyCheckState(s.id);
+              const disabled = selected.size === 0;
+              return (
+                <li key={s.id}>
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => toggleSurveyForSelectedWalkbooks(s.id)}
+                    className={`flex w-full items-center gap-3 px-3 py-2 text-left text-sm transition ${
+                      disabled
+                        ? "cursor-not-allowed opacity-60"
+                        : state === "all"
+                          ? "bg-navy-50/60 hover:bg-navy-50"
+                          : "hover:bg-navy-50/40"
+                    }`}
+                  >
+                    <span
+                      className={`flex h-5 w-5 flex-none items-center justify-center rounded border ${
+                        state === "all"
+                          ? "border-navy-900 bg-navy-900 text-white"
+                          : state === "some"
+                            ? "border-navy-900 bg-white"
+                            : "border-navy-200 bg-white"
+                      }`}
+                      aria-hidden
+                    >
+                      {state === "all" ? (
+                        <CheckCircle2 className="h-3 w-3" />
+                      ) : state === "some" ? (
+                        <span className="block h-1.5 w-1.5 rounded-sm bg-navy-900" />
+                      ) : null}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium text-navy-900">{s.name}</span>
+                      <span className="block text-[11px] text-muted-foreground">
+                        {state === "some"
+                          ? `On ${count} of ${total} selected walkbook${total === 1 ? "" : "s"}`
+                          : state === "all" && total > 1
+                            ? `On all ${total} selected walkbooks`
+                            : null}
+                      </span>
+                    </span>
+                    <Badge
+                      variant={
+                        s.status === "active"
+                          ? "success"
+                          : s.status === "paused"
+                            ? "warning"
+                            : "secondary"
+                      }
+                    >
+                      {s.status}
+                    </Badge>
+                  </button>
+                </li>
+              );
+            })}
+            <li className="border-t border-border bg-navy-50/30 p-2 text-center">
+              <a
+                href="/admin/surveys/new"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 rounded-md border border-navy-200 bg-white px-2 py-1 text-[11px] font-medium text-navy-700 hover:bg-navy-50"
+              >
+                <Plus className="h-3 w-3" /> Create another survey
+              </a>
+            </li>
+          </ul>
+        )}
+      </div>
+
       {/* Action bar */}
       <div className="sticky bottom-0 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-white p-3 shadow">
         <div className="flex flex-wrap items-center gap-2">
@@ -781,13 +1020,27 @@ export function AssignWalkbooksView(props: Props) {
           />
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          {pending.size > 0 ? (
+          {pending.size + surveyChangedWalkbookIds.length > 0 ? (
             <span className="flex items-center gap-1 text-navy-900">
               <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
-              {pending.size} pending change{pending.size === 1 ? "" : "s"}
+              {pending.size > 0
+                ? `${pending.size} volunteer change${pending.size === 1 ? "" : "s"}`
+                : null}
+              {pending.size > 0 && surveyChangedWalkbookIds.length > 0 ? " · " : null}
+              {surveyChangedWalkbookIds.length > 0
+                ? `${surveyChangedWalkbookIds.length} survey change${
+                    surveyChangedWalkbookIds.length === 1 ? "" : "s"
+                  }`
+                : null}
             </span>
           ) : null}
-          <Button onClick={confirmAll} disabled={pending.size === 0 || busy} variant="accent">
+          <Button
+            onClick={confirmAll}
+            disabled={
+              (pending.size === 0 && surveyChangedWalkbookIds.length === 0) || busy
+            }
+            variant="accent"
+          >
             <CheckCircle2 className="mr-1.5 h-4 w-4" />
             {busy ? "Confirming…" : "Confirm & Notify"}
           </Button>
