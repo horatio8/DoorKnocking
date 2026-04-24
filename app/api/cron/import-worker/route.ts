@@ -27,9 +27,18 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 async function authorize(req: Request): Promise<boolean> {
+  // Vercel cron: x-vercel-cron header set to "1" OR User-Agent starting
+  // with "vercel-cron". We check both since the header has changed across
+  // Vercel platform revisions.
   if (req.headers.get("x-vercel-cron") === "1") return true;
+  const ua = req.headers.get("user-agent") ?? "";
+  if (/^vercel-cron/i.test(ua)) return true;
+  // Shared-secret nudge (optional — works only if CRON_SECRET env is set).
   const expected = process.env.CRON_SECRET;
   if (expected && req.headers.get("authorization") === `Bearer ${expected}`) return true;
+  // Authenticated admin nudge — the wizard fires this right after
+  // enqueueing so jobs start immediately instead of waiting on the
+  // next scheduled tick.
   const session = await loadSession();
   if (session?.user.role === "admin" || session?.user.role === "super_admin") return true;
   return false;
