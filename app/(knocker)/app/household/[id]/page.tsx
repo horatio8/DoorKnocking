@@ -122,12 +122,15 @@ export default async function HouseholdPage({ params }: { params: { id: string }
         .select("*")
         .in("household_id", householdIds)
         .order("last_name", { ascending: true }),
+      // Multi-knocker era: pull the full recent history with knocker
+      // + survey names so the volunteer at the door can see exactly
+      // who's been here, what they recorded, and under what survey.
       supabase
         .from("knock_events")
-        .select("*")
+        .select("*, users:user_id(full_name, email), surveys:survey_id(name)")
         .in("household_id", householdIds)
         .order("knocked_at", { ascending: false })
-        .limit(10),
+        .limit(25),
       resolvedSurveyId
         ? supabase
             .from("surveys")
@@ -169,7 +172,23 @@ export default async function HouseholdPage({ params }: { params: { id: string }
           userId={session.user.id}
           household={hh}
           voters={(voters ?? []) as Voter[]}
-          recentKnocks={(recentKnocks ?? []) as KnockEvent[]}
+          recentKnocks={((recentKnocks ?? []) as Array<
+            KnockEvent & {
+              users:
+                | { full_name: string | null; email: string }
+                | Array<{ full_name: string | null; email: string }>
+                | null;
+              surveys: { name: string } | Array<{ name: string }> | null;
+            }
+          >).map((k) => {
+            const u = Array.isArray(k.users) ? k.users[0] : k.users;
+            const s = Array.isArray(k.surveys) ? k.surveys[0] : k.surveys;
+            return {
+              ...k,
+              knocker_name: u?.full_name ?? u?.email ?? null,
+              survey_name: s?.name ?? null,
+            };
+          })}
           survey={activeSurvey}
           standardTags={(standardTags ?? []) as Tag[]}
           sessionScriptId={open?.chosen_script_id ?? null}

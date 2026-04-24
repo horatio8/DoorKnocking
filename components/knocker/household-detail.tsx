@@ -22,11 +22,16 @@ import { ConversationRecorder } from "./conversation-recorder";
 import { TagPicker } from "./tag-picker";
 import { VoterOneLiner } from "./voter-one-liner";
 
+export type KnockHistoryEntry = KnockEvent & {
+  knocker_name: string | null;
+  survey_name: string | null;
+};
+
 interface Props {
   userId: string;
   household: Household;
   voters: Voter[];
-  recentKnocks: KnockEvent[];
+  recentKnocks: KnockHistoryEntry[];
   survey: (Survey & { survey_questions: SurveyQuestion[] }) | null;
   standardTags: Tag[];
   sessionScriptId?: string | null;
@@ -64,7 +69,7 @@ export function HouseholdDetail({
   const pillColor = HOUSEHOLD_PIN_COLORS[household.status];
 
   const priorKnocksByVoter = useMemo(() => {
-    const out = new Map<string, KnockEvent[]>();
+    const out = new Map<string, KnockHistoryEntry[]>();
     for (const k of recentKnocks) {
       if (!k.voter_id) continue;
       const list = out.get(k.voter_id) ?? [];
@@ -154,7 +159,8 @@ export function HouseholdDetail({
           <ul className="space-y-2">
             {voters.map((v) => {
               const priors = priorKnocksByVoter.get(v.id) ?? [];
-              const lastKnock = priors[0];
+              const visible = priors.slice(0, 3);
+              const extra = Math.max(0, priors.length - visible.length);
               return (
                 <li key={v.id}>
                   <button
@@ -169,21 +175,38 @@ export function HouseholdDetail({
                   >
                     <div className="flex items-start gap-3">
                       <UserCircle2 className="mt-0.5 h-6 w-6 text-navy-500" />
-                      <div>
+                      <div className="min-w-0">
                         <p className="font-voter text-base font-semibold text-navy-900">
                           {v.display_name}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {[v.calculated_party, v.primary_phone].filter(Boolean).join(" · ") || "—"}
                         </p>
-                        {lastKnock ? (
-                          <p className="mt-1 text-[11px] text-muted-foreground">
-                            Last: {lastKnock.status.replace("_", " ")} · {formatRelative(lastKnock.knocked_at)}
-                          </p>
+                        {visible.length > 0 ? (
+                          <ul className="mt-1.5 space-y-0.5">
+                            {visible.map((k) => (
+                              <li
+                                key={k.id}
+                                className="text-[11px] leading-tight text-muted-foreground"
+                              >
+                                <span className="font-medium text-navy-900">
+                                  {k.status.replace(/_/g, " ")}
+                                </span>{" "}
+                                · {formatRelative(k.knocked_at)}
+                                {k.knocker_name ? ` · by ${k.knocker_name}` : ""}
+                                {k.survey_name ? ` · ${k.survey_name}` : ""}
+                              </li>
+                            ))}
+                            {extra > 0 ? (
+                              <li className="text-[10px] italic text-muted-foreground">
+                                and {extra} earlier knock{extra === 1 ? "" : "s"}
+                              </li>
+                            ) : null}
+                          </ul>
                         ) : null}
                       </div>
                     </div>
-                    <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                    <ChevronRight className="h-5 w-5 flex-none text-muted-foreground" />
                   </button>
                 </li>
               );
