@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { v4 as uuid } from "uuid";
 import { enqueue, pendingOutboxCount } from "./db";
+import { flushOutbox } from "./sync";
 import type {
   Household,
   HouseholdStatus,
@@ -129,6 +130,11 @@ export const useFieldStore = create<FieldState>((set, get) => ({
       id: clientEventId,
       endpoint: "knock_event",
       payload: {
+        // Use the client-generated UUID as the row id too. This keeps
+        // the id stable across client + server so the survey runner
+        // (which navigates to /app/survey/<id>) can resolve the row
+        // as soon as the outbox flushes.
+        id: clientEventId,
         client_event_id: clientEventId,
         household_id: household.id,
         voter_id: voterId,
@@ -142,6 +148,18 @@ export const useFieldStore = create<FieldState>((set, get) => ({
       },
     });
     await get().refreshPendingCount();
+    // Kick the outbox immediately so the server row exists by the time
+    // handleCommit routes to /app/survey/<id>. Offline (or flush fail)
+    // falls back to the 30-second background worker; the optimistic
+    // local event is already in the store either way.
+    if (typeof navigator !== "undefined" && navigator.onLine) {
+      try {
+        await flushOutbox();
+        await get().refreshPendingCount();
+      } catch (err) {
+        console.warn("[recordKnock] immediate flush failed; will retry via worker", err);
+      }
+    }
     return event;
   },
 
