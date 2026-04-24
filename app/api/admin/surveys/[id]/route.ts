@@ -150,10 +150,17 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     );
     const keptIds = new Set<string>();
     const rows = body.questions.map((q, i) => {
-      const id = idByKey.get(q.question_key);
-      if (id) keptIds.add(id);
+      // Every row needs an explicit id. For existing questions we reuse
+      // the stored uuid so survey_responses keep their FK intact. For
+      // new rows we mint a uuid here rather than relying on the column
+      // default — when upsert() receives a mixed batch (some rows with
+      // id, some without), PostgREST treats the column as present and
+      // sends null for the missing ones, which trips the NOT NULL check
+      // before Postgres can apply gen_random_uuid().
+      const id = idByKey.get(q.question_key) ?? crypto.randomUUID();
+      keptIds.add(id);
       return {
-        ...(id ? { id } : {}),
+        id,
         survey_id: current.id,
         order_index: i + 1,
         question_text: q.question_text,
