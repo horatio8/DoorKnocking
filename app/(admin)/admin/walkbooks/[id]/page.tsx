@@ -118,6 +118,26 @@ export default async function WalkbookDetail({ params }: { params: { id: string 
   const missingScriptsTable = isMissingRelation(availScripts.error);
   const missingAttachmentTables =
     isMissingRelation(attachedSurveys.error) || isMissingRelation(attachedScripts.error);
+
+  // Current active assignees for this walkbook (walkbook_assignments rows
+  // with unassigned_at IS NULL). We display names to confirm who the
+  // walkbook is currently attached to and link to the bulk assign UI.
+  const { data: assignmentRows } = await supabase
+    .from("walkbook_assignments")
+    .select("user_id, assigned_at")
+    .eq("walkbook_id", params.id)
+    .is("unassigned_at", null)
+    .order("assigned_at", { ascending: false });
+  const assignments = (assignmentRows ?? []) as Array<{ user_id: string; assigned_at: string }>;
+  const assigneeIds = assignments.map((a) => a.user_id);
+  const { data: assigneeRows } = assigneeIds.length
+    ? await supabase.from("users").select("id, display_name, email").in("id", assigneeIds)
+    : { data: [] as Array<{ id: string; display_name: string | null; email: string | null }> };
+  const assignees = (assigneeRows ?? []) as Array<{
+    id: string;
+    display_name: string | null;
+    email: string | null;
+  }>;
   const surveysAvailable = (availSurveys.data ?? []) as Array<{
     id: string;
     name: string;
@@ -164,6 +184,42 @@ export default async function WalkbookDetail({ params }: { params: { id: string 
       </div>
 
       <WalkbookRouteMap walkbookId={wb.id} stops={stops} />
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
+          <div>
+            <CardTitle>Assigned to</CardTitle>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {assignees.length === 0
+                ? "No volunteers are currently assigned — this walkbook is up for grabs."
+                : `${assignees.length} active volunteer${assignees.length === 1 ? "" : "s"}`}
+            </p>
+          </div>
+          <Link
+            href="/admin/walkbooks/assign"
+            className="rounded-md bg-navy px-3 py-1.5 text-xs font-medium text-white hover:bg-navy-800"
+          >
+            {assignees.length === 0 ? "Assign to a volunteer" : "Edit assignments"}
+          </Link>
+        </CardHeader>
+        {assignees.length > 0 ? (
+          <CardContent>
+            <ul className="grid gap-1 text-sm">
+              {assignees.map((u) => (
+                <li
+                  key={u.id}
+                  className="flex items-center justify-between border-b border-border py-1.5 last:border-0"
+                >
+                  <span className="text-navy-900">{u.display_name || u.email || u.id}</span>
+                  {u.email ? (
+                    <span className="text-xs text-muted-foreground">{u.email}</span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        ) : null}
+      </Card>
 
       {missingScriptsTable || missingAttachmentTables ? (
         <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
