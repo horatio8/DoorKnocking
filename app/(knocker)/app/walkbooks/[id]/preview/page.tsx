@@ -34,19 +34,13 @@ export default async function WalkbookPreviewPage({
     centroid_lng: number | null;
   };
 
-  // Pull everything the preview picker needs in parallel:
-  //   - walkbook-scoped surveys (may be empty → fall back to district default)
-  //   - walkbook-scoped scripts (may be empty)
-  //   - the district default survey, in case nothing is walkbook-scoped
-  const [walkbookSurveysRes, walkbookScriptsRes, districtSurveysRes] = await Promise.all([
+  // Scripts are now info screens inside surveys — we only resolve surveys
+  // here. Walkbook-scoped surveys take precedence; falls back to the
+  // district default if none are attached.
+  const [walkbookSurveysRes, districtSurveysRes] = await Promise.all([
     supabase
       .from("walkbook_surveys")
       .select("survey_id, pinned, priority, surveys(id, name, status, current_version)")
-      .eq("walkbook_id", walkbook.id)
-      .order("priority", { ascending: false }),
-    supabase
-      .from("walkbook_scripts")
-      .select("script_id, pinned, priority, scripts(id, name, status, body_md)")
       .eq("walkbook_id", walkbook.id)
       .order("priority", { ascending: false }),
     supabase
@@ -62,12 +56,6 @@ export default async function WalkbookPreviewPage({
     name: string;
     pinned: boolean;
     source: "walkbook" | "district";
-  };
-  type ScriptChoice = {
-    id: string;
-    name: string;
-    body_md: string | null;
-    pinned: boolean;
   };
 
   const surveyChoices: SurveyChoice[] = ((walkbookSurveysRes.data ?? []) as Array<{
@@ -98,19 +86,6 @@ export default async function WalkbookPreviewPage({
     }
   }
 
-  const scriptChoices: ScriptChoice[] = ((walkbookScriptsRes.data ?? []) as Array<{
-    pinned: boolean;
-    scripts:
-      | { id: string; name: string; status: string; body_md: string | null }
-      | Array<{ id: string; name: string; status: string; body_md: string | null }>
-      | null;
-  }>)
-    .flatMap((r) => {
-      const s = Array.isArray(r.scripts) ? r.scripts[0] : r.scripts;
-      if (!s || s.status !== "active") return [];
-      return [{ id: s.id, name: s.name, body_md: s.body_md, pinned: r.pinned }];
-    });
-
   return (
     <PreviewWalkbook
       walkbook={{
@@ -125,7 +100,6 @@ export default async function WalkbookPreviewPage({
         },
       }}
       surveyChoices={surveyChoices}
-      scriptChoices={scriptChoices}
     />
   );
 }

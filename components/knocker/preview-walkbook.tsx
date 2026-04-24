@@ -28,13 +28,6 @@ interface SurveyChoice {
   source: "walkbook" | "district";
 }
 
-interface ScriptChoice {
-  id: string;
-  name: string;
-  body_md: string | null;
-  pinned: boolean;
-}
-
 type Pace = "slow" | "medium" | "fast";
 type Travel = "walking" | "driving";
 
@@ -54,11 +47,9 @@ const TRAVEL_HINT: Record<Travel, string> = {
 export function PreviewWalkbook({
   walkbook,
   surveyChoices = [],
-  scriptChoices = [],
 }: {
   walkbook: WalkbookPreview;
   surveyChoices?: SurveyChoice[];
-  scriptChoices?: ScriptChoice[];
 }) {
   const router = useRouter();
   const [stops, setStops] = useState<PreviewStop[] | null>(null);
@@ -69,19 +60,13 @@ export function PreviewWalkbook({
   const [pace, setPace] = useState<Pace>("medium");
   const [travel, setTravel] = useState<Travel>("walking");
 
-  // Auto-pick the pinned survey/script when one exists, otherwise the
-  // first in the list (priority-ordered). Admins intending to lock a
-  // choice will have pinned=true + exactly one item, so this also drives
-  // the "locked" UI — volunteers see no radio buttons.
+  // Auto-pick the pinned survey when one exists, otherwise the first
+  // in the list (priority-ordered). Scripts live inside surveys now as
+  // info screens, so there's no separate script picker.
   const pinnedSurvey = useMemo(() => surveyChoices.find((s) => s.pinned) ?? null, [surveyChoices]);
-  const pinnedScript = useMemo(() => scriptChoices.find((s) => s.pinned) ?? null, [scriptChoices]);
   const [surveyId, setSurveyId] = useState<string | null>(
     pinnedSurvey?.id ?? surveyChoices[0]?.id ?? null,
   );
-  const [scriptId, setScriptId] = useState<string | null>(
-    pinnedScript?.id ?? scriptChoices[0]?.id ?? null,
-  );
-  const [scriptOpen, setScriptOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -121,7 +106,7 @@ export function PreviewWalkbook({
           walkbook_id: walkbook.id,
           pace_multiplier: PACE_MULTIPLIER[pace],
           chosen_survey_id: surveyId,
-          chosen_script_id: scriptId,
+          chosen_script_id: null,
         }),
       });
       const sessBody = await sessRes.json().catch(() => ({}));
@@ -141,8 +126,6 @@ export function PreviewWalkbook({
   }
 
   const surveyLocked = pinnedSurvey != null && surveyChoices.length === 1;
-  const scriptLocked = pinnedScript != null && scriptChoices.length === 1;
-  const activeScript = scriptChoices.find((s) => s.id === scriptId) ?? null;
 
   return (
     <div className="h-full overflow-y-auto p-4">
@@ -247,54 +230,6 @@ export function PreviewWalkbook({
               ))}
             </div>
           )}
-        </section>
-      ) : null}
-
-      {/* Script disclosure — locked / single / picker — with collapsed body. */}
-      {scriptChoices.length > 0 ? (
-        <section className="mt-4 rounded-lg border-2 border-navy-100 bg-white p-3">
-          <p className="text-xs font-semibold uppercase tracking-widest text-navy-700">
-            Script{scriptLocked ? " · locked by admin" : ""}
-          </p>
-          {scriptLocked ? null : (
-            <div className="mt-2 grid gap-2">
-              {scriptChoices.map((s) => (
-                <label
-                  key={s.id}
-                  className={`flex cursor-pointer items-start gap-2 rounded-xl border-2 p-3 ${
-                    scriptId === s.id
-                      ? "border-navy-900 bg-navy-50"
-                      : "border-navy-200 bg-white"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="script"
-                    checked={scriptId === s.id}
-                    onChange={() => setScriptId(s.id)}
-                    className="mt-1 accent-navy-900"
-                  />
-                  <span className="text-sm font-semibold text-navy-900">{s.name}</span>
-                </label>
-              ))}
-            </div>
-          )}
-          {activeScript ? (
-            <>
-              <button
-                type="button"
-                onClick={() => setScriptOpen((v) => !v)}
-                className="mt-3 text-xs font-semibold text-navy-700 underline"
-              >
-                {scriptOpen ? "Hide script" : "Read the script"}
-              </button>
-              {scriptOpen ? (
-                <pre className="mt-2 whitespace-pre-wrap rounded-md border border-navy-100 bg-parchment/60 p-3 font-sans text-sm text-navy-900">
-                  {activeScript.body_md ?? ""}
-                </pre>
-              ) : null}
-            </>
-          ) : null}
         </section>
       ) : null}
 

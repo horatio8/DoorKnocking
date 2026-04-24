@@ -250,20 +250,12 @@ export default async function WalkbookDetail({ params }: { params: { id: string 
           </p>
         </div>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <WalkbookAttachments
-            walkbookId={wb.id}
-            entity="surveys"
-            available={surveysAvailable}
-            initial={surveyInit}
-          />
-          <WalkbookAttachments
-            walkbookId={wb.id}
-            entity="scripts"
-            available={scriptsAvailable}
-            initial={scriptInit}
-          />
-        </div>
+        <WalkbookAttachments
+          walkbookId={wb.id}
+          entity="surveys"
+          available={surveysAvailable}
+          initial={surveyInit}
+        />
       )}
 
       <Card>
