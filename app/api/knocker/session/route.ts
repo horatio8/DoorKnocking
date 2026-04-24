@@ -39,19 +39,50 @@ export async function POST(req: Request) {
     .eq("user_id", session.user.id)
     .is("ended_at", null);
 
-  const { data, error } = await supabase
+  // The chosen_survey_id / chosen_script_id columns ship in migration
+  // 20260419000005. On any environment where that migration hasn't been
+  // applied yet, the insert below fails with SQLSTATE 42703
+  // (undefined_column) and the volunteer can't start a session at all.
+  // Try with the new fields first, then fall back to the legacy shape so
+  // the session still starts even on a stale database.
+  const baseRow = {
+    user_id: session.user.id,
+    walkbook_id: body.walkbook_id ?? null,
+    pace_multiplier: body.pace_multiplier ?? 1.0,
+  };
+  const fullRow = {
+    ...baseRow,
+    chosen_survey_id: body.chosen_survey_id ?? null,
+    chosen_script_id: body.chosen_script_id ?? null,
+  };
+
+  let { data, error } = await supabase
     .from("knock_sessions")
-    .insert({
-      user_id: session.user.id,
-      walkbook_id: body.walkbook_id ?? null,
-      pace_multiplier: body.pace_multiplier ?? 1.0,
-      chosen_survey_id: body.chosen_survey_id ?? null,
-      chosen_script_id: body.chosen_script_id ?? null,
-    })
+    .insert(fullRow)
     .select("*")
     .single();
+  if (error && isMissingColumn(error)) {
+    console.warn(
+      "[knocker/session] chosen_survey_id/chosen_script_id columns missing —",
+      "falling back to legacy insert. Apply migration 20260419000005 to enable",
+      "walkbook-level survey selection.",
+    );
+    const retry = await supabase
+      .from("knock_sessions")
+      .insert(baseRow)
+      .select("*")
+      .single();
+    data = retry.data;
+    error = retry.error;
+  }
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ session: data });
+}
+
+function isMissingColumn(err: { code?: string; message?: string } | null | undefined): boolean {
+  if (!err) return false;
+  if (err.code === "42703") return true;
+  return /column .* does not exist/i.test(err.message ?? "");
 }
 
 export async function PATCH(req: Request) {
