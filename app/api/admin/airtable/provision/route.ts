@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { resolveAirtableTokenForDistrict } from "@/lib/airtable/credentials";
-import { listWorkspaces, provisionCanonicalBase } from "@/lib/airtable/provisioning";
+import { provisionCanonicalBase } from "@/lib/airtable/provisioning";
 
 // POST /api/admin/airtable/provision
 //   body: { district_id, workspace_id?, name? }
@@ -14,8 +14,10 @@ import { listWorkspaces, provisionCanonicalBase } from "@/lib/airtable/provision
 // points at a canonical base, this returns the stored ids without
 // re-provisioning.
 //
-// GET /api/admin/airtable/provision?district_id=... lists the workspaces
-// the token can provision into, for the first-run picker.
+// GET /api/admin/airtable/provision?district_id=...
+//   Returns the workspace_id (if any) already saved on the client's
+//   credentials. Airtable doesn't expose a workspace list endpoint, so
+//   the UI surfaces a text input prompting the admin to paste theirs.
 
 export const maxDuration = 180;
 
@@ -30,12 +32,7 @@ export async function GET(req: Request) {
   if (!creds?.token) {
     return NextResponse.json({ error: "no airtable token" }, { status: 412 });
   }
-  try {
-    const workspaces = await listWorkspaces(creds.token);
-    return NextResponse.json({ workspaces, suggested: creds.workspaceId });
-  } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 502 });
-  }
+  return NextResponse.json({ suggested: creds.workspaceId ?? null });
 }
 
 export async function POST(req: Request) {

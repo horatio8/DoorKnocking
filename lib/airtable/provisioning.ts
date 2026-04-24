@@ -187,20 +187,12 @@ export async function provisionCanonicalBase(
   };
 }
 
-// List the workspaces the current token can provision into. Needed for
-// the first-run picker — legacy PAT clients don't have a stored
-// `airtable_workspace_id`.
-export async function listWorkspaces(
-  token: string,
-): Promise<Array<{ id: string; name: string }>> {
-  const res = await fetch(`${META_BASE_URL}/workspaces`, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: "no-store",
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Airtable workspaces ${res.status}: ${text}`);
-  }
-  const body = (await res.json()) as { workspaces?: Array<{ id: string; name: string }> };
-  return body.workspaces ?? [];
-}
+// NOTE: Airtable's Metadata API has no public endpoint for listing the
+// workspaces a PAT can access. `GET /v0/meta/bases` only returns bases
+// (no workspaceId on each row), and there's no `/meta/workspaces`
+// route — hitting it returns a 401 with a misleading
+// MISSING_MCP_SERVICE_HEADER error.
+//
+// The admin has to provide the workspaceId by hand — they can grab it
+// from any Airtable workspace URL: airtable.com/wspXXXXXXXXXXX/...
+// We persist it on client_credentials so they only need to do it once.

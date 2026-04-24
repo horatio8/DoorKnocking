@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Upload, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -25,11 +25,6 @@ interface UploadResponse {
   } | null;
 }
 
-interface Workspace {
-  id: string;
-  name: string;
-}
-
 type Step = "upload" | "review" | "provision" | "push" | "done";
 
 const STEPS: Array<{ key: Step; label: string }> = [
@@ -45,8 +40,12 @@ export function AirtableFileUploadWizard({ districtId, districtName, hasCanonica
   const [step, setStep] = useState<Step>("upload");
   const [uploadState, setUploadState] = useState<UploadResponse | null>(null);
   const [mapping, setMapping] = useState<FieldMapping>({});
-  const [workspaces, setWorkspaces] = useState<Workspace[] | null>(null);
+  // Airtable doesn't expose a workspaces-list endpoint, so we load the
+  // saved workspace id (if any) on mount and let the admin paste in a
+  // new one. Workspace ids look like wspXXXXXXXXXXX and live in the
+  // URL of any Airtable workspace page.
   const [workspaceId, setWorkspaceId] = useState<string>("");
+  const [workspaceLoaded, setWorkspaceLoaded] = useState(false);
   const [provisionResult, setProvisionResult] = useState<{ base_id: string; reused: boolean } | null>(
     hasCanonicalBase ? { base_id: "(already provisioned)", reused: true } : null,
   );
@@ -94,24 +93,27 @@ export function AirtableFileUploadWizard({ districtId, districtName, hasCanonica
     }
   }
 
-  async function loadWorkspaces() {
-    setBusy("Fetching your Airtable workspaces…");
-    setError(null);
-    try {
-      const res = await fetch(
-        `/api/admin/airtable/provision?district_id=${encodeURIComponent(districtId)}`,
-      );
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? `${res.status}`);
-      setWorkspaces(body.workspaces ?? []);
-      if (body.suggested) setWorkspaceId(body.suggested);
-      else if (body.workspaces?.[0]) setWorkspaceId(body.workspaces[0].id);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(null);
-    }
-  }
+  // Pull the saved workspace id on mount so the admin doesn't have to
+  // re-find it on every provision attempt.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/admin/airtable/provision?district_id=${encodeURIComponent(districtId)}`,
+        );
+        const body = await res.json();
+        if (!cancelled && res.ok && body.suggested) setWorkspaceId(body.suggested);
+      } catch {
+        // Non-fatal — the admin can still paste their workspace id.
+      } finally {
+        if (!cancelled) setWorkspaceLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [districtId]);
 
   async function provisionBase() {
     if (!workspaceId) {
@@ -229,14 +231,13 @@ export function AirtableFileUploadWizard({ districtId, districtName, hasCanonica
 
       {step === "provision" ? (
         <ProvisionStep
-          workspaces={workspaces}
           workspaceId={workspaceId}
           onPick={setWorkspaceId}
-          onLoad={loadWorkspaces}
           onProvision={provisionBase}
           result={provisionResult}
           busy={busy}
           districtName={districtName}
+          loaded={workspaceLoaded}
         />
       ) : null}
 
@@ -424,23 +425,21 @@ function ConfidenceChip({ level }: { level: "high" | "medium" | "low" }) {
 }
 
 function ProvisionStep({
-  workspaces,
   workspaceId,
   onPick,
-  onLoad,
   onProvision,
   result,
   busy,
   districtName,
+  loaded,
 }: {
-  workspaces: Workspace[] | null;
   workspaceId: string;
   onPick(id: string): void;
-  onLoad(): void;
   onProvision(): void;
   result: { base_id: string; reused: boolean } | null;
   busy: string | null;
   districtName: string;
+  loaded: boolean;
 }) {
   return (
     <div className="space-y-4 rounded-lg border border-border bg-white p-4">
@@ -463,28 +462,32 @@ function ProvisionStep({
       {!result ? (
         <div className="space-y-3">
           <label className="flex flex-col gap-1 text-xs font-medium text-navy-700">
-            Workspace
-            <select
-              className="w-full rounded-md border border-navy-200 bg-white px-2 py-2 text-sm text-navy-900 focus:border-navy-400 focus:outline-none"
+            Workspace ID
+            <input
+              type="text"
+              className="w-full rounded-md border border-navy-200 bg-white px-2 py-2 font-mono text-sm text-navy-900 focus:border-navy-400 focus:outline-none"
               value={workspaceId}
-              onChange={(e) => onPick(e.target.value)}
-              disabled={!workspaces}
-            >
-              <option value="">
-                {workspaces ? "Pick a workspace…" : "Click \"Load workspaces\" to pick"}
-              </option>
-              {(workspaces ?? []).map((w) => (
-                <option key={w.id} value={w.id}>{w.name}</option>
-              ))}
-            </select>
+              onChange={(e) => onPick(e.target.value.trim())}
+              placeholder="wspXXXXXXXXXXX"
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+            />
+            <span className="text-[11px] font-normal text-muted-foreground">
+              Airtable doesn&rsquo;t expose a workspace list via their API. Open Airtable in a new
+              tab — your workspace id is the{" "}
+              <span className="font-mono">wsp…</span> segment in the URL
+              (<span className="font-mono">airtable.com/wspXXXXX/home</span>). Paste it here.
+              {loaded && workspaceId ? " Pre-filled from your saved credentials." : ""}
+            </span>
           </label>
           <div className="flex gap-2">
-            {!workspaces ? (
-              <Button type="button" variant="outline" onClick={onLoad} disabled={!!busy}>
-                {busy ?? "Load workspaces"}
-              </Button>
-            ) : null}
-            <Button type="button" variant="accent" onClick={onProvision} disabled={!workspaceId || !!busy}>
+            <Button
+              type="button"
+              variant="accent"
+              onClick={onProvision}
+              disabled={!/^wsp[A-Za-z0-9]+$/.test(workspaceId) || !!busy}
+            >
               {busy ?? "Create base"}
             </Button>
           </div>
