@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { resolveAirtableTokenForDistrict } from "@/lib/airtable/credentials";
 import { pushFromFile, type PushProgressEvent } from "@/lib/airtable/push-from-file";
@@ -10,14 +11,12 @@ import {
   releaseImportJobLock,
 } from "@/lib/imports/jobs";
 
-// Cron-driven import worker. Registered via vercel.json; fires every
-// minute. Each invocation:
-//   1. Atomically claims the oldest runnable job (queued or with an
-//      expired lock from a crashed previous worker).
-//   2. Loads the file + district + creds.
-//   3. Runs pushFromFile end to end, patching progress on the job row
-//      as each phase completes so the admin UI can watch it live.
-//   4. Marks the job imported or failed, releases the lock.
+// Cron-driven import worker. Three ways in:
+//   1. Vercel cron (x-vercel-cron=1 header). Fires per vercel.json.
+//   2. Anyone with the CRON_SECRET (Bearer token). External nudge.
+//   3. An authenticated admin session. The admin wizard pokes this
+//      right after enqueueing so the job doesn't wait up to 60s for
+//      the next scheduled tick.
 //
 // maxDuration=300 is Vercel's Pro ceiling. A 10k-row push fits inside
 // that comfortably now that geocoding is batched (~20s for Census +
@@ -27,15 +26,17 @@ import {
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-export async function GET(req: Request) {
-  // Vercel cron hits with Authorization: Bearer <CRON_SECRET>. Anyone
-  // else gets 403 — otherwise the queue is an open invitation to burn
-  // Airtable + Mapbox quota.
-  const authHeader = req.headers.get("authorization");
+async function authorize(req: Request): Promise<boolean> {
+  if (req.headers.get("x-vercel-cron") === "1") return true;
   const expected = process.env.CRON_SECRET;
-  const isCron = expected && authHeader === `Bearer ${expected}`;
-  const isVercelCron = req.headers.get("x-vercel-cron") === "1";
-  if (!isCron && !isVercelCron) {
+  if (expected && req.headers.get("authorization") === `Bearer ${expected}`) return true;
+  const session = await loadSession();
+  if (session?.user.role === "admin" || session?.user.role === "super_admin") return true;
+  return false;
+}
+
+export async function GET(req: Request) {
+  if (!(await authorize(req))) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
