@@ -40,7 +40,8 @@ export function SurveyRunner({ knockEventId, voter, survey, initialAnswers }: Pr
   const current = questions[index];
   const total = questions.length;
   const answered = current ? answers[current.id] : null;
-  const canAdvance = current ? !current.required || !isEmpty(answered) : false;
+  const isInfo = current?.question_type === "info";
+  const canAdvance = current ? isInfo || !current.required || !isEmpty(answered) : false;
 
   async function persist(questionId: string, answer: Answer, partial = true) {
     // Best-effort direct push to Supabase; outbox enqueue is the offline
@@ -92,7 +93,10 @@ export function SurveyRunner({ knockEventId, voter, survey, initialAnswers }: Pr
 
   async function handleNext() {
     if (!current || !canAdvance) return;
-    await persist(current.id, answers[current.id] ?? null, true);
+    // Info screens are read-only — no response row, just advance.
+    if (current.question_type !== "info") {
+      await persist(current.id, answers[current.id] ?? null, true);
+    }
     if (index + 1 >= total) {
       await finish(true);
     } else {
@@ -148,13 +152,24 @@ export function SurveyRunner({ knockEventId, voter, survey, initialAnswers }: Pr
         </p>
       </div>
       <div className="flex-1 overflow-y-auto p-4">
-        <h2 className="text-xl font-semibold text-navy-900">{current.question_text}</h2>
-        {current.help_text ? (
-          <p className="mt-1 text-sm text-muted-foreground">{current.help_text}</p>
-        ) : null}
-        <div className="mt-5">
-          <QuestionInput question={current} value={answered} onChange={setAnswer} />
-        </div>
+        {isInfo ? (
+          <div
+            className="prose prose-sm max-w-none text-navy-900 sm:prose-base"
+            dangerouslySetInnerHTML={{
+              __html: current.body_html ?? "<p>(Empty info screen)</p>",
+            }}
+          />
+        ) : (
+          <>
+            <h2 className="text-xl font-semibold text-navy-900">{current.question_text}</h2>
+            {current.help_text ? (
+              <p className="mt-1 text-sm text-muted-foreground">{current.help_text}</p>
+            ) : null}
+            <div className="mt-5">
+              <QuestionInput question={current} value={answered} onChange={setAnswer} />
+            </div>
+          </>
+        )}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-white p-4">
         <Button
@@ -165,16 +180,18 @@ export function SurveyRunner({ knockEventId, voter, survey, initialAnswers }: Pr
           Back
         </Button>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="ghost" onClick={() => finish(false)} disabled={submitting}>
-            Save &amp; exit
-          </Button>
-          {!current.required ? (
+          {!isInfo ? (
+            <Button variant="ghost" onClick={() => finish(false)} disabled={submitting}>
+              Save &amp; exit
+            </Button>
+          ) : null}
+          {!isInfo && !current.required ? (
             <Button variant="ghost" onClick={handleSkip} disabled={submitting}>
               Skip
             </Button>
           ) : null}
           <Button onClick={handleNext} disabled={!canAdvance || submitting} variant="accent">
-            {index + 1 === total ? "Finish" : "Next →"}
+            {index + 1 === total ? "Finish" : isInfo ? "Continue →" : "Next →"}
           </Button>
         </div>
       </div>

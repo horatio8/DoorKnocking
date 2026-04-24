@@ -34,7 +34,8 @@ export type QuestionType =
   | "long_text"
   | "rating_1_5"
   | "yes_no"
-  | "scale_0_10";
+  | "scale_0_10"
+  | "info";
 
 export type SurveyVisibility = "all_houses" | "assigned_only";
 
@@ -201,6 +202,7 @@ export interface SurveyQuestion {
   required: boolean;
   options: Array<{ value: string; label: string }> | null;
   help_text: string | null;
+  body_html?: string | null;
 }
 
 export interface SurveyResponse {
