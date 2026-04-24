@@ -106,6 +106,15 @@ function toAirtableField(
       timeZone: "utc",
     };
   }
+  if (field.type === "checkbox") {
+    // Airtable requires both color + icon for checkbox fields — omit
+    // and the metadata API returns INVALID_FIELD_TYPE_OPTIONS_FOR_CREATE.
+    base.options = { color: "greenBright", icon: "check" };
+  }
+  if (field.type === "number") {
+    // Same deal — number fields need a precision to be creatable.
+    base.options = { precision: 0 };
+  }
   return base;
 }
 
@@ -201,30 +210,39 @@ export async function provisionCanonicalBase(
 // ============================================================
 // Alternative path: drop the canonical tables into an existing base.
 // Skips POST /meta/bases entirely so we don't need a workspaceId — we
-// just add tables to a base the admin already has. Fails cleanly if any
-// of the canonical table names already exist so we don't silently
-// clobber the admin's data.
+// just add tables to a base the admin already has.
+//
+// Resume-safe: if some canonical tables already exist in the base (e.g.
+// from a previous install that crashed part-way), we reuse them by id
+// and only create what's missing. Same for fields — already-present
+// columns on existing tables are left alone, missing ones get added.
 // ============================================================
 export async function addCanonicalTablesToBase(
   token: string,
   baseId: string,
 ): Promise<ProvisionedBase> {
   const existing = await listTables(token, baseId);
-  const nameSet = new Set(existing.map((t) => t.name.toLowerCase()));
-  const collisions = CANONICAL_TABLES.filter((t) => nameSet.has(t.name.toLowerCase()));
-  if (collisions.length > 0) {
-    throw new Error(
-      `This base already has table${collisions.length === 1 ? "" : "s"} named ${collisions
-        .map((c) => `"${c.name}"`)
-        .join(", ")}. Pick a different base, or rename the existing table(s) in Airtable first.`,
-    );
-  }
+  const existingByName = new Map(existing.map((t) => [t.name.toLowerCase(), t]));
 
   const tableIdsByKey: Partial<Record<CanonicalTableKey, string>> = {};
 
-  // Pass 1: create every table with its primitive fields. Sequential
-  // to stay polite with the metadata-API rate limit.
+  // Pass 1: each canonical table — reuse if present, else create with
+  // its primitive fields.
   for (const t of CANONICAL_TABLES) {
+    const existingTable = existingByName.get(t.name.toLowerCase());
+    if (existingTable) {
+      tableIdsByKey[t.key] = existingTable.id;
+      // Add any primitive fields that aren't already on the table.
+      const existingFieldNames = new Set(
+        existingTable.fields.map((f) => f.name.toLowerCase()),
+      );
+      for (const f of splitFields(t).primitive) {
+        if (existingFieldNames.has(f.name.toLowerCase())) continue;
+        await createField(token, baseId, existingTable.id, toAirtableField(f, tableIdsByKey));
+        await sleep(FIELD_CREATE_DELAY_MS);
+      }
+      continue;
+    }
     const prim = splitFields(t).primitive;
     const created = await createTable(token, baseId, {
       name: t.name,
@@ -234,17 +252,25 @@ export async function addCanonicalTablesToBase(
     await sleep(FIELD_CREATE_DELAY_MS);
   }
 
-  // Pass 2: linked-record fields. Same two-pass shape as
-  // provisionCanonicalBase — we can only reference tables that exist.
+  // Pass 2: linked-record fields. Skip any that already exist on the
+  // target table (admin's resume case, or they added the link by hand).
+  // Re-fetch schema after pass 1 so we know the current field names on
+  // every table, including ones we just created.
+  const refreshed = await listTables(token, baseId);
+  const fieldNamesByTableId = new Map<string, Set<string>>();
+  for (const t of refreshed) {
+    fieldNamesByTableId.set(
+      t.id,
+      new Set(t.fields.map((f) => f.name.toLowerCase())),
+    );
+  }
+
   for (const t of CANONICAL_TABLES) {
-    const linked = splitFields(t).linked;
-    for (const f of linked) {
-      await createField(
-        token,
-        baseId,
-        tableIdsByKey[t.key]!,
-        toAirtableField(f, tableIdsByKey),
-      );
+    const tableId = tableIdsByKey[t.key]!;
+    const already = fieldNamesByTableId.get(tableId) ?? new Set<string>();
+    for (const f of splitFields(t).linked) {
+      if (already.has(f.name.toLowerCase())) continue;
+      await createField(token, baseId, tableId, toAirtableField(f, tableIdsByKey));
       await sleep(FIELD_CREATE_DELAY_MS);
     }
   }
