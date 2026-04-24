@@ -82,18 +82,21 @@ export default async function WalkbookDetail({ params }: { params: { id: string 
   });
 
   // Available + currently attached surveys / scripts for this walkbook.
+  // Include paused alongside active + draft — re-attaching a paused
+  // survey is a common workflow and we don't want to force admins to
+  // un-pause just to pick it. Archived stays excluded.
   const [availSurveys, availScripts, attachedSurveys, attachedScripts] = await Promise.all([
     supabase
       .from("surveys")
       .select("id, name, status")
       .eq("district_id", wb.district_id)
-      .in("status", ["active", "draft"])
+      .in("status", ["active", "draft", "paused"])
       .order("priority", { ascending: false }),
     supabase
       .from("scripts")
       .select("id, name, status")
       .eq("district_id", wb.district_id)
-      .in("status", ["active", "draft"])
+      .in("status", ["active", "draft", "paused"])
       .order("priority", { ascending: false }),
     supabase
       .from("walkbook_surveys")
@@ -104,6 +107,17 @@ export default async function WalkbookDetail({ params }: { params: { id: string 
       .select("script_id, pinned")
       .eq("walkbook_id", params.id),
   ]);
+
+  // Detect the "migration 20260419000005 hasn't run yet" case so we can
+  // tell the admin rather than silently showing empty cards. Postgres
+  // relation-does-not-exist is SQLSTATE 42P01.
+  function isMissingRelation(e: { code?: string; message?: string } | null | undefined) {
+    if (!e) return false;
+    return e.code === "42P01" || /does not exist|relation .* does not exist/i.test(e.message ?? "");
+  }
+  const missingScriptsTable = isMissingRelation(availScripts.error);
+  const missingAttachmentTables =
+    isMissingRelation(attachedSurveys.error) || isMissingRelation(attachedScripts.error);
   const surveysAvailable = (availSurveys.data ?? []) as Array<{
     id: string;
     name: string;
@@ -151,20 +165,37 @@ export default async function WalkbookDetail({ params }: { params: { id: string 
 
       <WalkbookRouteMap walkbookId={wb.id} stops={stops} />
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <WalkbookAttachments
-          walkbookId={wb.id}
-          entity="surveys"
-          available={surveysAvailable}
-          initial={surveyInit}
-        />
-        <WalkbookAttachments
-          walkbookId={wb.id}
-          entity="scripts"
-          available={scriptsAvailable}
-          initial={scriptInit}
-        />
-      </div>
+      {missingScriptsTable || missingAttachmentTables ? (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="font-semibold">Walkbook-level surveys &amp; scripts aren&rsquo;t available yet.</p>
+          <p className="mt-1 text-xs">
+            The migration that adds{" "}
+            <code className="font-mono">walkbook_surveys</code>,{" "}
+            <code className="font-mono">walkbook_scripts</code>, and the{" "}
+            <code className="font-mono">scripts</code> table hasn&rsquo;t been applied to
+            this database yet. Run{" "}
+            <code className="font-mono">
+              supabase/migrations/20260419000005_scripts_and_walkbook_targets.sql
+            </code>{" "}
+            (or <code className="font-mono">supabase db push</code>) and refresh.
+          </p>
+        </div>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <WalkbookAttachments
+            walkbookId={wb.id}
+            entity="surveys"
+            available={surveysAvailable}
+            initial={surveyInit}
+          />
+          <WalkbookAttachments
+            walkbookId={wb.id}
+            entity="scripts"
+            available={scriptsAvailable}
+            initial={scriptInit}
+          />
+        </div>
+      )}
 
       <Card>
         <CardHeader>
