@@ -10,11 +10,14 @@ import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 //     assignments: Array<{ walkbookId: string; userId: string | null }>
 //   }
 //
-// Transactional-ish: creates one assignment_batches row, then closes any
-// current active assignments for the walkbooks, then inserts the new rows
-// (userId=null means unassigned — no new row, just close current).
-// Walkbooks with new assignments move to status='in_progress'; walkbooks
-// that were unassigned (userId=null) stay at their current status.
+// Additive multi-holder semantics: each (walkbookId, userId) pair adds
+// a user to a walkbook if they're not already on it. Existing active
+// assignments for other users on the same walkbook are NOT wiped —
+// multiple volunteers can share a walkbook. userId=null pairs are
+// skipped (no-op); removing a specific volunteer is handled by the
+// per-pair unassign endpoints, not this batch.
+// Walkbooks that gain an assignee flip to status='in_progress' if
+// they were open.
 
 export const maxDuration = 60;
 
@@ -112,26 +115,36 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: batchErr?.message ?? "batch insert failed" }, { status: 500 });
   }
 
-  // 2. Close any active assignments on these walkbooks.
-  const nowIso = new Date().toISOString();
-  await supabase
-    .from("walkbook_assignments")
-    .update({ unassigned_at: nowIso })
-    .in("walkbook_id", wbIds)
-    .is("unassigned_at", null);
-
-  // 3. Insert new active rows (only where userId is non-null).
+  // 2. Additive inserts. Look up which (walkbook, user) pairs already
+  // have an active row and skip them so re-running a batch doesn't pile
+  // up duplicates. Other volunteers already on the same walkbooks stay
+  // assigned — multi-holder by design.
   if (effective.length > 0) {
-    const rows = effective.map((a) => ({
-      walkbook_id: a.walkbookId,
-      user_id: a.userId,
-      assigned_by: ctx.session.user.id,
-      assignment_batch_id: batch.id,
-      assignment_notes: body.notes ?? null,
-    }));
-    const { error: insErr } = await supabase.from("walkbook_assignments").insert(rows);
-    if (insErr) {
-      return NextResponse.json({ error: insErr.message, batchId: batch.id }, { status: 500 });
+    const { data: existingRows } = await supabase
+      .from("walkbook_assignments")
+      .select("walkbook_id, user_id")
+      .in("walkbook_id", wbIds)
+      .in("user_id", effective.map((a) => a.userId))
+      .is("unassigned_at", null);
+    const existingPairs = new Set(
+      ((existingRows ?? []) as Array<{ walkbook_id: string; user_id: string }>).map(
+        (r) => `${r.walkbook_id}:${r.user_id}`,
+      ),
+    );
+    const rows = effective
+      .filter((a) => !existingPairs.has(`${a.walkbookId}:${a.userId}`))
+      .map((a) => ({
+        walkbook_id: a.walkbookId,
+        user_id: a.userId,
+        assigned_by: ctx.session.user.id,
+        assignment_batch_id: batch.id,
+        assignment_notes: body.notes ?? null,
+      }));
+    if (rows.length > 0) {
+      const { error: insErr } = await supabase.from("walkbook_assignments").insert(rows);
+      if (insErr) {
+        return NextResponse.json({ error: insErr.message, batchId: batch.id }, { status: 500 });
+      }
     }
   }
 

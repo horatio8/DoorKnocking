@@ -3,13 +3,10 @@ import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 // POST /api/walkbooks/:id/self-assign
-//   Gentle claim from the knocker's own UI (map pin popover, browse list).
-//   Unlike /assign which steals from any prior holder, this one refuses if
-//   the walkbook is already assigned to someone else — steal is reserved
-//   for the "start knock session" path where intent is explicit.
-//
-//   Idempotent for the same knocker: re-calling just returns the existing
-//   assignment row.
+//   Multi-holder: any knocker can claim any walkbook without affecting
+//   anyone else's claim. Idempotent for the same caller — re-calling
+//   returns the existing assignment row. (Exclusivity used to live here;
+//   the refactor drops it so overlapping teams can work the same turf.)
 //
 // DELETE /api/walkbooks/:id/self-assign
 //   Only works if assigned_by == user_id (the knocker self-selected it).
@@ -28,25 +25,17 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
     .maybeSingle();
   if (!wb) return NextResponse.json({ error: "walkbook not found" }, { status: 404 });
 
-  const { data: current } = await supabase
+  // Reuse the caller's own active row if it already exists.
+  const { data: mine } = await supabase
     .from("walkbook_assignments")
-    .select("id, user_id, assigned_by")
+    .select("id")
     .eq("walkbook_id", params.id)
+    .eq("user_id", session.user.id)
     .is("unassigned_at", null)
     .limit(1)
     .maybeSingle();
-  const active = current as
-    | { id: string; user_id: string; assigned_by: string | null }
-    | null;
-
-  if (active && active.user_id !== session.user.id) {
-    return NextResponse.json(
-      { error: "already_assigned", message: "Another volunteer is currently on this walkbook." },
-      { status: 409 },
-    );
-  }
-  if (active && active.user_id === session.user.id) {
-    return NextResponse.json({ ok: true, assignmentId: active.id, already: true });
+  if (mine) {
+    return NextResponse.json({ ok: true, assignmentId: (mine as { id: string }).id, already: true });
   }
 
   const { data: created, error } = await supabase

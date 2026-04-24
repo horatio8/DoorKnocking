@@ -2,11 +2,10 @@ import { NextResponse } from "next/server";
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
-// POST /api/walkbooks/[id]/assign — soft-lock: knocker claims a walkbook for
-// their session. If someone else already holds it, we still succeed (spec
-// §4.2: soft lock, warning shown in UI) by un-assigning the previous holder
-// unless they have an active knock in progress (for now we always steal and
-// let the UI warn; hard lock kicks in at first knock event in phase W4).
+// POST /api/walkbooks/[id]/assign — claim a walkbook for the caller's
+// knocking session. Multi-holder by design: this no longer unassigns
+// prior holders or the caller's other walkbooks. Idempotent per user:
+// calling with an existing active row returns it unchanged.
 export async function POST(_req: Request, { params }: { params: { id: string } }) {
   const session = await loadSession();
   if (!session) return NextResponse.json({ error: "forbidden" }, { status: 403 });
@@ -19,19 +18,18 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
     .maybeSingle();
   if (!wb) return NextResponse.json({ error: "walkbook not found" }, { status: 404 });
 
-  // Release any existing active assignments on this walkbook (soft lock).
-  await supabase
+  // If the caller already has an active row on this walkbook, reuse it.
+  const { data: existing } = await supabase
     .from("walkbook_assignments")
-    .update({ unassigned_at: new Date().toISOString() })
+    .select("id")
     .eq("walkbook_id", params.id)
-    .is("unassigned_at", null);
-
-  // Release this user's previous active assignment on a different walkbook.
-  await supabase
-    .from("walkbook_assignments")
-    .update({ unassigned_at: new Date().toISOString() })
     .eq("user_id", session.user.id)
-    .is("unassigned_at", null);
+    .is("unassigned_at", null)
+    .limit(1)
+    .maybeSingle();
+  if (existing) {
+    return NextResponse.json({ assignmentId: (existing as { id: string }).id, already: true });
+  }
 
   const { data: created, error } = await supabase
     .from("walkbook_assignments")
