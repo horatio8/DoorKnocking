@@ -60,6 +60,12 @@ export function PreviewWalkbook({
   const [pace, setPace] = useState<Pace>("medium");
   const [travel, setTravel] = useState<Travel>("walking");
 
+  // Mount log — if this fires more than once during a single Start-session
+  // attempt it means the page is remounting (the navigation came back).
+  useEffect(() => {
+    console.info("[preview] mounted for walkbook", walkbook.id, "at", new Date().toISOString());
+  }, [walkbook.id]);
+
   // Auto-pick the pinned survey when one exists, otherwise the first
   // in the list (priority-ordered). Scripts live inside surveys now as
   // info screens, so there's no separate script picker.
@@ -134,8 +140,13 @@ export function PreviewWalkbook({
         body: JSON.stringify({ speed_rating: pace, availability: "out_in_field" }),
       }).catch((err) => console.warn("[preview] profile patch failed (non-fatal)", err));
 
-      console.info("[preview] navigating to /app/map?walkbook=", walkbook.id);
-      router.push(`/app/map?walkbook=${walkbook.id}`);
+      const mapUrl = `/app/map?walkbook=${walkbook.id}`;
+      console.info("[preview] navigating (hard) to", mapUrl);
+      // Hard navigation on purpose. router.push() was exhibiting a loop
+      // where the URL changed but some deploys bounced back to preview
+      // under React's transition/cache — location.href forces a full
+      // page load so the map page renders fresh.
+      window.location.href = mapUrl;
     } catch (e) {
       console.error("[preview] Start knock session failed:", e);
       setError((e as Error).message || "Unknown error starting the session.");
