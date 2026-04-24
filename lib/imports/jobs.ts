@@ -61,30 +61,54 @@ export async function enqueueImportJob(
   return data as ImportJob;
 }
 
-// Atomic "claim the oldest runnable job" used by the cron worker. A row
-// is runnable if it's queued OR its prior lock has aged past the TTL
-// (handles a worker that crashed mid-run). Returns null if the queue is
-// empty, so the cron tick can exit cleanly.
+// Atomic "claim the oldest runnable job" used by the cron worker. Two
+// passes:
+//   1. Look for jobs with locked_at IS NULL (the common case — fresh
+//      queue items or jobs released cleanly).
+//   2. If none, look for stale locks (locked_at older than the TTL) so
+//      a worker that crashed mid-run doesn't strand its job forever.
+//
+// Originally a single .or() but Supabase's PostgREST query string
+// mangled ISO timestamps with colons inside .or(), causing the SELECT
+// to return zero candidates even when a queued unlocked job existed.
+// Two .is() / .lt() calls are unambiguous.
 export async function claimNextImportJob(
   supabase: SupabaseClient,
   workerId: string,
 ): Promise<ImportJob | null> {
-  const cutoff = new Date(Date.now() - LOCK_TTL_MINUTES * 60_000).toISOString();
-  const { data: candidates, error: findErr } = await supabase
-    .from("import_jobs")
-    .select("id")
-    .in("status", ["queued", "pushing", "importing"])
-    .or(`locked_at.is.null,locked_at.lt.${cutoff}`)
-    .order("created_at", { ascending: true })
-    .limit(1);
-  if (findErr) throw new Error(`claimNextImportJob: ${findErr.message}`);
-  const candidate = (candidates ?? [])[0] as { id: string } | undefined;
+  const findCandidate = async (): Promise<{ id: string } | null> => {
+    // Unlocked first.
+    const unlocked = await supabase
+      .from("import_jobs")
+      .select("id")
+      .in("status", ["queued", "pushing", "importing"])
+      .is("locked_at", null)
+      .order("created_at", { ascending: true })
+      .limit(1);
+    if (unlocked.error) throw new Error(`claimNextImportJob: ${unlocked.error.message}`);
+    const fresh = (unlocked.data ?? [])[0] as { id: string } | undefined;
+    if (fresh) return fresh;
+
+    // Stale lock — worker crashed mid-run.
+    const cutoff = new Date(Date.now() - LOCK_TTL_MINUTES * 60_000).toISOString();
+    const stale = await supabase
+      .from("import_jobs")
+      .select("id")
+      .in("status", ["queued", "pushing", "importing"])
+      .lt("locked_at", cutoff)
+      .order("created_at", { ascending: true })
+      .limit(1);
+    if (stale.error) throw new Error(`claimNextImportJob: ${stale.error.message}`);
+    return ((stale.data ?? [])[0] as { id: string } | undefined) ?? null;
+  };
+
+  const candidate = await findCandidate();
   if (!candidate) return null;
 
-  // Best-effort optimistic lock — another worker may have grabbed it
-  // between the SELECT and UPDATE. The `locked_at lt cutoff OR is null`
-  // clause keeps us from stealing someone else's healthy lock.
-  const { data: claimed, error: claimErr } = await supabase
+  // Optimistic claim — split into two attempts so the WHERE clauses
+  // stay simple (avoids the same .or() mangling that bit the SELECT).
+  // Pass 1: claim if currently unlocked.
+  const claimedFresh = (await supabase
     .from("import_jobs")
     .update({
       locked_at: new Date().toISOString(),
@@ -93,11 +117,32 @@ export async function claimNextImportJob(
       updated_at: new Date().toISOString(),
     })
     .eq("id", candidate.id)
-    .or(`locked_at.is.null,locked_at.lt.${cutoff}`)
+    .is("locked_at", null)
     .select("*")
-    .maybeSingle();
-  if (claimErr) throw new Error(`claimNextImportJob: ${claimErr.message}`);
-  return (claimed as ImportJob | null) ?? null;
+    .maybeSingle()) as { data: ImportJob | null; error: { message: string } | null };
+  if (claimedFresh.error) {
+    throw new Error(`claimNextImportJob: ${claimedFresh.error.message}`);
+  }
+  if (claimedFresh.data) return claimedFresh.data;
+
+  // Pass 2: claim a stale lock.
+  const cutoff = new Date(Date.now() - LOCK_TTL_MINUTES * 60_000).toISOString();
+  const claimedStale = (await supabase
+    .from("import_jobs")
+    .update({
+      locked_at: new Date().toISOString(),
+      locked_by: workerId,
+      started_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", candidate.id)
+    .lt("locked_at", cutoff)
+    .select("*")
+    .maybeSingle()) as { data: ImportJob | null; error: { message: string } | null };
+  if (claimedStale.error) {
+    throw new Error(`claimNextImportJob: ${claimedStale.error.message}`);
+  }
+  return claimedStale.data ?? null;
 }
 
 // Patch a job row with progress counters + status. Always bumps
