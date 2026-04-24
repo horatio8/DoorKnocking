@@ -94,9 +94,12 @@ export default async function AdminWalkbooks({
     }
   }
 
-  // Active assignments — separate query, joined in JS.
+  // Active assignments — separate query, joined in JS. Multi-holder
+  // by design: a walkbook can have more than one active assignee, so
+  // this is a list per walkbook, not a single user.
+  type Assignee = { user_id: string; full_name: string | null; email: string };
   const wbIds = walkbookRows.map((w) => w.id);
-  const assignmentByWalkbook = new Map<string, { user_id: string; full_name: string | null; email: string }>();
+  const assignmentsByWalkbook = new Map<string, Assignee[]>();
   if (wbIds.length > 0) {
     const { data: assigns } = await supabase
       .from("walkbook_assignments")
@@ -112,11 +115,13 @@ export default async function AdminWalkbooks({
         | null;
     }>) {
       const u = Array.isArray(a.users) ? a.users[0] : a.users;
-      assignmentByWalkbook.set(a.walkbook_id, {
+      const list = assignmentsByWalkbook.get(a.walkbook_id) ?? [];
+      list.push({
         user_id: a.user_id,
         full_name: u?.full_name ?? null,
         email: u?.email ?? "",
       });
+      assignmentsByWalkbook.set(a.walkbook_id, list);
     }
   }
 
@@ -207,7 +212,7 @@ export default async function AdminWalkbooks({
   }
 
   // Per-step counters for the workflow header.
-  const assignedCount = assignmentByWalkbook.size;
+  const assignedCount = assignmentsByWalkbook.size;
   const unassignedCount = Math.max(0, total - assignedCount);
   const hasWalkbooks = total > 0;
   const step1Active = !hasWalkbooks;
@@ -224,27 +229,38 @@ export default async function AdminWalkbooks({
     totalMinutes: number;
     knockedDoors: number;
   }
+  // A walkbook with multiple assignees appears under every assignee's
+  // section — matching how admins think about "who's on what" now that
+  // walkbooks are multi-holder. Unassigned walkbooks bucket into a
+  // single 'unassigned' group.
   const groupsMap = new Map<string, Group>();
   for (const wb of walkbookRows) {
-    const a = assignmentByWalkbook.get(wb.id) ?? null;
-    const key = a?.user_id ?? "unassigned";
-    const g =
-      groupsMap.get(key) ??
-      ({
-        key,
-        userId: a?.user_id ?? null,
-        name: a?.full_name ?? (a ? a.email : "Unassigned"),
-        email: a?.email ?? "",
-        walkbooks: [],
-        totalDoors: 0,
-        totalMinutes: 0,
-        knockedDoors: 0,
-      } as Group);
-    g.walkbooks.push(wb);
-    g.totalDoors += wb.household_count;
-    g.totalMinutes += wb.estimated_duration_minutes ?? wb.target_duration_minutes ?? 0;
-    g.knockedDoors += metrics(wb.id, wb.household_count).doorsKnocked;
-    groupsMap.set(key, g);
+    const assignees = assignmentsByWalkbook.get(wb.id) ?? [];
+    const slots: Array<{ key: string; assignee: Assignee | null }> =
+      assignees.length > 0
+        ? assignees.map((a) => ({ key: a.user_id, assignee: a }))
+        : [{ key: "unassigned", assignee: null }];
+    for (const slot of slots) {
+      const g =
+        groupsMap.get(slot.key) ??
+        ({
+          key: slot.key,
+          userId: slot.assignee?.user_id ?? null,
+          name:
+            slot.assignee?.full_name ??
+            (slot.assignee ? slot.assignee.email : "Unassigned"),
+          email: slot.assignee?.email ?? "",
+          walkbooks: [],
+          totalDoors: 0,
+          totalMinutes: 0,
+          knockedDoors: 0,
+        } as Group);
+      g.walkbooks.push(wb);
+      g.totalDoors += wb.household_count;
+      g.totalMinutes += wb.estimated_duration_minutes ?? wb.target_duration_minutes ?? 0;
+      g.knockedDoors += metrics(wb.id, wb.household_count).doorsKnocked;
+      groupsMap.set(slot.key, g);
+    }
   }
   const groups = Array.from(groupsMap.values()).sort((a, b) => {
     // Unassigned last; otherwise alphabetical by name.
@@ -455,7 +471,7 @@ export default async function AdminWalkbooks({
                 <WalkbookCard
                   key={wb.id}
                   wb={wb}
-                  assignedUser={assignmentByWalkbook.get(wb.id) ?? null}
+                  assignees={assignmentsByWalkbook.get(wb.id) ?? []}
                   metrics={metrics(wb.id, wb.household_count)}
                   districts={districts}
                   districtNameById={districtNameById}
@@ -537,7 +553,7 @@ export default async function AdminWalkbooks({
                         <WalkbookCard
                           key={wb.id}
                           wb={wb}
-                          assignedUser={assignmentByWalkbook.get(wb.id) ?? null}
+                          assignees={assignmentsByWalkbook.get(wb.id) ?? []}
                           metrics={metrics(wb.id, wb.household_count)}
                           districts={districts}
                           districtNameById={districtNameById}
@@ -569,7 +585,7 @@ interface WalkbookCardProps {
     target_duration_minutes: number | null;
     created_at: string;
   };
-  assignedUser: { user_id: string; full_name: string | null; email: string } | null;
+  assignees: Array<{ user_id: string; full_name: string | null; email: string }>;
   metrics: { doorsPerHour: number | null; completion: number; doorsKnocked: number };
   districts: Array<{ id: string; name: string }>;
   districtNameById: Map<string, string>;
@@ -578,12 +594,14 @@ interface WalkbookCardProps {
 
 function WalkbookCard({
   wb,
-  assignedUser,
+  assignees,
   metrics: m,
   districts,
   districtNameById,
   hideAssigneeFooter,
 }: WalkbookCardProps) {
+  const primary = assignees[0] ?? null;
+  const extraCount = Math.max(0, assignees.length - 1);
   const pct = Math.round(m.completion * 100);
   const est = wb.estimated_duration_minutes ?? wb.target_duration_minutes ?? null;
   return (
@@ -641,19 +659,30 @@ function WalkbookCard({
       {!hideAssigneeFooter ? (
         <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
           <span>
-            {assignedUser?.full_name ? (
+            {primary?.full_name ? (
               <span className="inline-flex items-center gap-1.5">
                 <span
                   className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-semibold"
                   style={{
-                    backgroundColor: userAvatarBackground(assignedUser.user_id),
-                    color: userAvatarForeground(assignedUser.user_id),
+                    backgroundColor: userAvatarBackground(primary.user_id),
+                    color: userAvatarForeground(primary.user_id),
                   }}
                   aria-hidden
                 >
-                  {userInitials(assignedUser.full_name, assignedUser.email)}
+                  {userInitials(primary.full_name, primary.email)}
                 </span>
-                {assignedUser.full_name}
+                {primary.full_name}
+                {extraCount > 0 ? (
+                  <span
+                    className="ml-1 rounded-full bg-navy-50 px-1.5 py-0.5 text-[10px] font-medium text-navy-700"
+                    title={assignees
+                      .slice(1)
+                      .map((a) => a.full_name ?? a.email)
+                      .join(", ")}
+                  >
+                    +{extraCount}
+                  </span>
+                ) : null}
               </span>
             ) : (
               <span className="rounded-full border border-dashed border-navy-300 px-2 py-0.5 text-[10px] uppercase tracking-widest text-navy-500">
