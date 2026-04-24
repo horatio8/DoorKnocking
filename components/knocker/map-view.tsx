@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import mapboxgl, { type GeoJSONSource } from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useFieldStore } from "@/lib/offline/store";
 import { publicEnv } from "@/lib/env";
 import {
@@ -70,6 +70,8 @@ export function MapView({
   selfAssignedIds = [],
 }: MapViewProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const incomingWalkbookId = searchParams?.get("walkbook") ?? null;
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const [statusFilter, setStatusFilter] = useState<Set<HouseholdStatus>>(new Set(STATUS_OPTIONS));
@@ -80,7 +82,13 @@ export function MapView({
   // Tapping a pin or route isolates one walkbook on the map and pops the
   // bottom-sheet summary. Clearing the selection returns to the filtered
   // overview.
-  const [selectedWalkbookId, setSelectedWalkbookId] = useState<string | null>(null);
+  // Seed with ?walkbook=<id> from the URL so starting a knock session
+  // from /app/walkbooks/[id]/preview lands the knocker zoomed and filtered
+  // to their walkbook instead of the whole district — otherwise it's
+  // unclear what to do next.
+  const [selectedWalkbookId, setSelectedWalkbookId] = useState<string | null>(
+    incomingWalkbookId,
+  );
   const [position, setPosition] = useState<{ lat: number; lng: number } | null>(null);
 
   const hydrate = useFieldStore((s) => s.hydrate);
@@ -467,15 +475,35 @@ export function MapView({
 
       {!selectedWalkbook ? (
         <>
-          <button
-            onClick={findNext}
-            className="absolute bottom-6 right-4 z-10 flex items-center gap-2 rounded-full bg-crimson px-5 py-3 text-sm font-semibold text-white shadow-lg hover:bg-crimson-700"
-          >
-            <Navigation className="h-4 w-4" />
-            Get started →
-          </button>
-          <div className="absolute bottom-6 left-4 z-10 rounded-md bg-white/90 px-3 py-2 text-xs text-navy-700 shadow">
-            {visibleHouseholds.length} houses · {visibleWalkbooks.length}/{walkbooks.length} walkbooks
+          {/* Starting-house prompt. Always visible at the bottom so
+              volunteers landing on the map after starting a session
+              know the next action is "tap a pin". The Get-started FAB
+              becomes secondary (jump to nearest by GPS). */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex flex-col items-center gap-2 px-3">
+            <div className="pointer-events-auto w-full max-w-md rounded-xl border border-navy-100 bg-white/95 px-4 py-3 text-center shadow-lg backdrop-blur">
+              <p className="text-sm font-semibold text-navy-900">
+                {selectedWalkbookId
+                  ? "Tap a house on the map to start knocking"
+                  : "Select your starting house"}
+              </p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                {visibleHouseholds.length} house{visibleHouseholds.length === 1 ? "" : "s"} visible
+                {visibleWalkbooks.length > 0
+                  ? ` · ${visibleWalkbooks.length}/${walkbooks.length} walkbook${
+                      walkbooks.length === 1 ? "" : "s"
+                    }`
+                  : ""}
+              </p>
+              <button
+                onClick={findNext}
+                disabled={!position}
+                className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-crimson px-4 py-1.5 text-xs font-semibold text-white shadow hover:bg-crimson-700 disabled:cursor-not-allowed disabled:opacity-60"
+                title={position ? "Jump to the nearest unknocked house" : "Waiting for your location…"}
+              >
+                <Navigation className="h-3 w-3" />
+                {position ? "Nearest unknocked →" : "Waiting for GPS…"}
+              </button>
+            </div>
           </div>
         </>
       ) : (
