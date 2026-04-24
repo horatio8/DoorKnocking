@@ -4,7 +4,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { AirtableClient, type AirtableRecord } from "./client";
-import { geocodeAddress } from "@/lib/geo/mapbox";
+import { geocodeBatch } from "@/lib/geo";
 import type { FieldMapping } from "./mapping";
 import { householdKey } from "@/lib/addresses/normalize";
 
@@ -156,30 +156,59 @@ export async function runImport({
     voters.push({ ...mapped.voter, householdRecId: mapped.householdRecId });
   }
 
-  // Geocode any households missing lat/lng
+  // Geocode any households missing lat/lng. One batched call to the
+  // Census Geocoder handles up to 10k rows in a single HTTP request
+  // (seconds, not minutes). Mapbox falls back for the small percentage
+  // Census can't match — see lib/geo/index.ts. No more 5-min timeouts
+  // on bulk imports.
   const geocodePatches: Array<{ id: string; fields: { Lat: number; Lng: number; GeocodedAt: string } }> = [];
   let geocoded = 0;
   let geocode_failed = 0;
-  for (const [, h] of householdsByKey) {
+  const toGeocode: Array<{
+    id: string;
+    street: string;
+    city: string;
+    state: string;
+    zip: string;
+    fallbackAddress: string;
+  }> = [];
+  for (const [hhKey, h] of householdsByKey) {
     if (h.payload.lat !== null && h.payload.lng !== null) continue;
-    const addr = [h.payload.address_line1, h.payload.city, h.payload.state, h.payload.zip]
-      .filter(Boolean)
-      .join(", ");
-    const result = await geocodeAddress(addr);
-    if (!result) {
-      geocode_failed++;
-      continue;
-    }
-    h.payload.lat = result.lat;
-    h.payload.lng = result.lng;
-    geocoded++;
-    if (patchAirtableLatLng) {
-      for (const id of h.memberAirtableIds) {
-        geocodePatches.push({
-          id,
-          fields: { Lat: result.lat, Lng: result.lng, GeocodedAt: new Date().toISOString() },
-        });
+    toGeocode.push({
+      id: hhKey,
+      street: h.payload.address_line1 ?? "",
+      city: h.payload.city ?? "",
+      state: h.payload.state ?? "",
+      zip: h.payload.zip ?? "",
+      fallbackAddress: [h.payload.address_line1, h.payload.city, h.payload.state, h.payload.zip]
+        .filter(Boolean)
+        .join(", "),
+    });
+  }
+  if (toGeocode.length > 0) {
+    const batch = await geocodeBatch(toGeocode);
+    for (const [hhKey, h] of householdsByKey) {
+      const hit = batch.byId.get(hhKey);
+      if (!hit) {
+        if (h.payload.lat === null || h.payload.lng === null) geocode_failed++;
+        continue;
       }
+      h.payload.lat = hit.lat;
+      h.payload.lng = hit.lng;
+      geocoded++;
+      if (patchAirtableLatLng) {
+        for (const id of h.memberAirtableIds) {
+          geocodePatches.push({
+            id,
+            fields: { Lat: hit.lat, Lng: hit.lng, GeocodedAt: new Date().toISOString() },
+          });
+        }
+      }
+    }
+    if (batch.mapboxSkipped && batch.missed.length > 0) {
+      console.warn(
+        `[import] Mapbox fallback unavailable — ${batch.missed.length} addresses Census couldn't match will be skipped. Set NEXT_PUBLIC_MAPBOX_TOKEN / MAPBOX_SECRET_TOKEN to recover these.`,
+      );
     }
   }
 
