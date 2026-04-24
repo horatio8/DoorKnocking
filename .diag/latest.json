@@ -1,5 +1,5 @@
 {
-  "at": "2026-04-24T04:42:29.012Z",
+  "at": "2026-04-24T04:55:45.592Z",
   "env": {
     "has_NEXT_PUBLIC_SUPABASE_URL": true,
     "NEXT_PUBLIC_SUPABASE_URL_host": "wrqydigzshnxvfvbdpkw.supabase.co",
@@ -60,12 +60,12 @@
     "households": 460,
     "walkbooks": 37,
     "walkbook_households": 460,
-    "walkbook_assignments": 61,
+    "walkbook_assignments": 63,
     "walk_time_calibration": 1,
     "walkbook_generation_runs": 4,
-    "knock_events": 12,
+    "knock_events": 13,
     "surveys": 3,
-    "survey_questions": 12,
+    "survey_questions": 13,
     "survey_responses": 0,
     "tags": 2,
     "voter_tags": 0
