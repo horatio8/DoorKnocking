@@ -30,6 +30,11 @@ interface FieldState {
     voters: Voter[];
     tags: Tag[];
   }): void;
+  // Sets just the authenticated user + district without touching the
+  // rest of the field state. Called from the knocker shell so routes
+  // that don't mount the map (household detail, survey runner, etc.)
+  // still have a hydrated user for recordKnock.
+  setIdentity(userId: string, districtId: string): void;
   applyKnockOptimistic(event: Omit<KnockEvent, "synced_at" | "created_at">): KnockEvent;
   recordKnock(input: {
     household: Household;
@@ -62,6 +67,14 @@ export const useFieldStore = create<FieldState>((set, get) => ({
       tags: new Map(tags.map((t) => [t.id, t])),
       lastSyncAt: Date.now(),
     });
+  },
+
+  setIdentity(userId, districtId) {
+    // Only patch identity — leaves households/voters/tags alone so a
+    // later full hydrate() from the map page isn't clobbered.
+    const cur = get();
+    if (cur.userId === userId && cur.districtId === districtId) return;
+    set({ userId, districtId });
   },
 
   applyKnockOptimistic(event) {
