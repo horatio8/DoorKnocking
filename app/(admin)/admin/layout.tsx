@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import {
+  Activity,
   BarChart3,
   ClipboardList,
   Database,
@@ -32,6 +33,7 @@ const NAV = [
   { href: "/admin/tags", label: "Tags", icon: TagIcon },
   { href: "/admin/households", label: "Households", icon: Home },
   { href: "/admin/export", label: "Export", icon: Download },
+  { href: "/admin/system/jobs", label: "Background jobs", icon: Activity },
   { href: "/admin/settings", label: "Settings", icon: SettingsIcon },
 ];
 
