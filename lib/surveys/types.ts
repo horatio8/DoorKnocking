@@ -8,7 +8,8 @@ export type SurveyQuestionType =
   | "long_text"
   | "yes_no"
   | "rating_1_5"
-  | "scale_0_10";
+  | "scale_0_10"
+  | "info";
 
 export interface SurveyOption {
   value: string;
@@ -26,6 +27,7 @@ export interface SurveyQuestionDraft {
   options: SurveyOption[] | null;
   min_value: number | null;
   max_value: number | null;
+  body_html?: string | null;
 }
 
 export type SurveyStatus = "draft" | "active" | "paused" | "archived";

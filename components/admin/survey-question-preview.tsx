@@ -14,13 +14,14 @@ export function SurveyQuestionPreview({
   index: number;
   total: number;
 }) {
+  const isInfo = question.question_type === "info";
   return (
     <div className="space-y-3 p-2">
       <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-navy-500">
         <span>
           {index + 1} / {total}
         </span>
-        <span>{question.required ? "Required" : "Optional"}</span>
+        <span>{isInfo ? "Info screen" : question.required ? "Required" : "Optional"}</span>
       </div>
       <div className="h-1.5 rounded-full bg-navy-100">
         <div
@@ -28,16 +29,34 @@ export function SurveyQuestionPreview({
           style={{ width: `${((index + 1) / Math.max(total, 1)) * 100}%` }}
         />
       </div>
-      <p className="text-sm font-semibold text-navy-900">
-        {question.question_text || "…"}
-      </p>
-      {question.help_text ? (
-        <p className="text-[11px] text-muted-foreground">{question.help_text}</p>
-      ) : null}
-      <PreviewBody question={question} />
+      {isInfo ? (
+        <div
+          className="prose prose-sm max-w-none text-navy-900"
+          dangerouslySetInnerHTML={{ __html: question.body_html ?? "<p>(Empty info screen)</p>" }}
+        />
+      ) : (
+        <>
+          <p className="text-sm font-semibold text-navy-900">
+            {question.question_text || "…"}
+          </p>
+          {question.help_text ? (
+            <p className="text-[11px] text-muted-foreground">{question.help_text}</p>
+          ) : null}
+          <PreviewBody question={question} />
+        </>
+      )}
       <div className="flex items-center justify-between pt-1 text-[10px]">
-        <span className="text-muted-foreground">Skip</span>
-        <span className="rounded-full bg-navy-900 px-3 py-1 text-white">Next →</span>
+        {isInfo ? (
+          <>
+            <span className="text-muted-foreground">Back</span>
+            <span className="rounded-full bg-navy-900 px-3 py-1 text-white">Continue →</span>
+          </>
+        ) : (
+          <>
+            <span className="text-muted-foreground">Skip</span>
+            <span className="rounded-full bg-navy-900 px-3 py-1 text-white">Next →</span>
+          </>
+        )}
       </div>
     </div>
   );

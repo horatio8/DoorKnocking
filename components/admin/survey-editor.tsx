@@ -27,6 +27,7 @@ import type {
   SurveyOption,
 } from "@/lib/surveys/types";
 import { SurveyQuestionPreview } from "./survey-question-preview";
+import { RichTextEditor } from "@/components/ui/rich-text-editor";
 
 const TYPE_LABELS: Record<SurveyQuestionType, string> = {
   single_choice: "Single choice",
@@ -36,6 +37,7 @@ const TYPE_LABELS: Record<SurveyQuestionType, string> = {
   yes_no: "Yes / No",
   rating_1_5: "Rating 1–5",
   scale_0_10: "Scale 0–10",
+  info: "Info screen",
 };
 
 export function SurveyEditor({
@@ -82,6 +84,25 @@ export function SurveyEditor({
       ],
       min_value: null,
       max_value: null,
+      body_html: null,
+    };
+    setQuestions((qs) => [...qs, q]);
+    setSelectedIdx(idx);
+  }
+
+  function addInfoScreen() {
+    const idx = questions.length;
+    const q: SurveyQuestionDraft = {
+      question_key: `info${idx + 1}`,
+      order_index: idx + 1,
+      question_text: "Info screen",
+      question_type: "info",
+      required: false,
+      help_text: null,
+      options: null,
+      min_value: null,
+      max_value: null,
+      body_html: "<p>Write the script or intro your volunteer should read here.</p>",
     };
     setQuestions((qs) => [...qs, q]);
     setSelectedIdx(idx);
@@ -308,13 +329,23 @@ export function SurveyEditor({
               <p className="text-xs font-semibold uppercase tracking-widest text-navy-500">
                 Questions ({questions.length})
               </p>
-              <button
-                type="button"
-                onClick={addQuestion}
-                className="inline-flex items-center gap-1 rounded-full border border-navy-200 bg-white px-2 py-0.5 text-[11px] font-medium text-navy-700 hover:bg-navy-50"
-              >
-                <Plus className="h-3 w-3" /> Add
-              </button>
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  onClick={addInfoScreen}
+                  title="Read-only info/script screen with a Continue button"
+                  className="inline-flex items-center gap-1 rounded-full border border-navy-200 bg-white px-2 py-0.5 text-[11px] font-medium text-navy-700 hover:bg-navy-50"
+                >
+                  <Plus className="h-3 w-3" /> Info
+                </button>
+                <button
+                  type="button"
+                  onClick={addQuestion}
+                  className="inline-flex items-center gap-1 rounded-full border border-navy-200 bg-white px-2 py-0.5 text-[11px] font-medium text-navy-700 hover:bg-navy-50"
+                >
+                  <Plus className="h-3 w-3" /> Question
+                </button>
+              </div>
             </div>
             <ul className="space-y-1">
               {questions.map((q, i) => (
@@ -402,10 +433,13 @@ function QuestionEditor({
 }) {
   const isChoice = question.question_type === "single_choice" || question.question_type === "multi_choice";
   const isScale = question.question_type === "rating_1_5" || question.question_type === "scale_0_10";
+  const isInfo = question.question_type === "info";
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-semibold text-navy-900">Question {question.order_index}</p>
+        <p className="text-sm font-semibold text-navy-900">
+          {isInfo ? `Info screen ${question.order_index}` : `Question ${question.order_index}`}
+        </p>
         <div className="flex items-center gap-1">
           <Button size="sm" variant="ghost" onClick={onMoveUp} disabled={!canMoveUp}>
             <ArrowUp className="h-3.5 w-3.5" />
@@ -420,18 +454,27 @@ function QuestionEditor({
       </div>
 
       <label className="block text-xs">
-        <span className="block font-medium text-navy-500">Question text</span>
+        <span className="block font-medium text-navy-500">
+          {isInfo ? "Internal label" : "Question text"}
+        </span>
         <textarea
           value={question.question_text}
           onChange={(e) => onPatch({ question_text: e.target.value })}
-          rows={2}
+          rows={isInfo ? 1 : 2}
           className="mt-1 w-full rounded-md border border-navy-200 p-2 text-sm"
         />
+        {isInfo ? (
+          <span className="mt-1 block text-[10px] text-muted-foreground">
+            Only shown in the editor list; not visible to the volunteer.
+          </span>
+        ) : null}
       </label>
 
       <div className="grid gap-3 md:grid-cols-2">
         <label className="block text-xs">
-          <span className="block font-medium text-navy-500">Question key</span>
+          <span className="block font-medium text-navy-500">
+            {isInfo ? "Screen key" : "Question key"}
+          </span>
           <Input
             value={question.question_key}
             onChange={(e) => onPatch({ question_key: toSlug(e.target.value) })}
@@ -455,18 +498,28 @@ function QuestionEditor({
                 ];
                 next.min_value = null;
                 next.max_value = null;
+                next.body_html = null;
               } else if (t === "rating_1_5") {
                 next.options = null;
                 next.min_value = 1;
                 next.max_value = 5;
+                next.body_html = null;
               } else if (t === "scale_0_10") {
                 next.options = null;
                 next.min_value = 0;
                 next.max_value = 10;
+                next.body_html = null;
+              } else if (t === "info") {
+                next.options = null;
+                next.min_value = null;
+                next.max_value = null;
+                next.required = false;
+                next.body_html = question.body_html ?? "<p>Write the script or intro here.</p>";
               } else {
                 next.options = null;
                 next.min_value = null;
                 next.max_value = null;
+                next.body_html = null;
               }
               onPatch(next);
             }}
@@ -481,55 +534,71 @@ function QuestionEditor({
         </label>
       </div>
 
-      <div className="flex flex-wrap items-center gap-4">
-        <label className="inline-flex items-center gap-2 text-xs">
-          <input
-            type="checkbox"
-            checked={question.required}
-            onChange={(e) => onPatch({ required: e.target.checked })}
+      {isInfo ? (
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-navy-500">Script body</p>
+          <RichTextEditor
+            value={question.body_html ?? ""}
+            onChange={(html) => onPatch({ body_html: html })}
+            minHeight={220}
           />
-          Required
-        </label>
-      </div>
-
-      <label className="block text-xs">
-        <span className="block font-medium text-navy-500">Help text</span>
-        <Input
-          value={question.help_text ?? ""}
-          onChange={(e) => onPatch({ help_text: e.target.value || null })}
-          placeholder="Optional hint shown under the question"
-        />
-      </label>
-
-      {isChoice ? (
-        <OptionsEditor
-          options={question.options ?? []}
-          onChange={(options) => onPatch({ options })}
-        />
-      ) : null}
-
-      {isScale ? (
-        <div className="grid gap-3 md:grid-cols-2">
-          <label className="block text-xs">
-            <span className="block font-medium text-navy-500">Min value</span>
-            <input
-              type="number"
-              value={question.min_value ?? 0}
-              onChange={(e) => onPatch({ min_value: Number(e.target.value) })}
-              className="mt-1 h-10 w-full rounded-md border border-input bg-white px-2 text-sm"
-            />
-          </label>
-          <label className="block text-xs">
-            <span className="block font-medium text-navy-500">Max value</span>
-            <input
-              type="number"
-              value={question.max_value ?? 10}
-              onChange={(e) => onPatch({ max_value: Number(e.target.value) })}
-              className="mt-1 h-10 w-full rounded-md border border-input bg-white px-2 text-sm"
-            />
-          </label>
+          <p className="text-[10px] text-muted-foreground">
+            Rendered as read-only HTML to the volunteer with a Continue button.
+          </p>
         </div>
-      ) : null}
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-4">
+            <label className="inline-flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={question.required}
+                onChange={(e) => onPatch({ required: e.target.checked })}
+              />
+              Required
+            </label>
+          </div>
+
+          <label className="block text-xs">
+            <span className="block font-medium text-navy-500">Help text</span>
+            <Input
+              value={question.help_text ?? ""}
+              onChange={(e) => onPatch({ help_text: e.target.value || null })}
+              placeholder="Optional hint shown under the question"
+            />
+          </label>
+
+          {isChoice ? (
+            <OptionsEditor
+              options={question.options ?? []}
+              onChange={(options) => onPatch({ options })}
+            />
+          ) : null}
+
+          {isScale ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="block text-xs">
+                <span className="block font-medium text-navy-500">Min value</span>
+                <input
+                  type="number"
+                  value={question.min_value ?? 0}
+                  onChange={(e) => onPatch({ min_value: Number(e.target.value) })}
+                  className="mt-1 h-10 w-full rounded-md border border-input bg-white px-2 text-sm"
+                />
+              </label>
+              <label className="block text-xs">
+                <span className="block font-medium text-navy-500">Max value</span>
+                <input
+                  type="number"
+                  value={question.max_value ?? 10}
+                  onChange={(e) => onPatch({ max_value: Number(e.target.value) })}
+                  className="mt-1 h-10 w-full rounded-md border border-input bg-white px-2 text-sm"
+                />
+              </label>
+            </div>
+          ) : null}
+        </>
+      )}
     </div>
   );
 }

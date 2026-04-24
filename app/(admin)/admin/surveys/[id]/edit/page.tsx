@@ -63,6 +63,7 @@ export default async function SurveyEditPage({ params }: { params: { id: string 
     question_key: string | null;
     min_value: number | null;
     max_value: number | null;
+    body_html: string | null;
   }>).map((q) => ({
     id: q.id,
     order_index: q.order_index,
@@ -74,6 +75,7 @@ export default async function SurveyEditPage({ params }: { params: { id: string 
     question_key: q.question_key ?? "",
     min_value: q.min_value,
     max_value: q.max_value,
+    body_html: q.body_html,
   }));
 
   return <SurveyEditor meta={meta} initialQuestions={qs} />;

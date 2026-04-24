@@ -110,6 +110,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         options: SurveyQuestionDraft["options"];
         min_value: number | null;
         max_value: number | null;
+        body_html: string | null;
       }>)
         .filter((q) => q.question_key)
         .map((q) => ({
@@ -122,6 +123,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
           options: q.options,
           min_value: q.min_value,
           max_value: q.max_value,
+          body_html: q.body_html,
         }));
       diff = compareSurveys(
         { survey: { ...current, name: "", description: "", visibility: "all_houses", priority: 0, current_version: current.current_version } as never, questions: prevQs },
@@ -162,6 +164,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         question_key: q.question_key,
         min_value: q.min_value,
         max_value: q.max_value,
+        body_html: q.question_type === "info" ? q.body_html ?? null : null,
       };
     });
 
