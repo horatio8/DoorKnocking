@@ -92,13 +92,22 @@ export function PreviewWalkbook({
 
   async function start() {
     setStarting(true);
+    setError(null);
     try {
+      console.info("[preview] Start knock session → assigning walkbook", walkbook.id);
       const assignRes = await fetch(`/api/walkbooks/${walkbook.id}/assign`, { method: "POST" });
-      const assignBody = await assignRes.json();
-      if (!assignRes.ok) throw new Error(assignBody.error ?? `${assignRes.status}`);
+      const assignBody = await assignRes.json().catch(() => ({}));
+      if (!assignRes.ok) {
+        console.warn("[preview] /assign failed", assignRes.status, assignBody);
+        throw new Error(
+          assignBody.error ?? `Couldn't claim the walkbook (${assignRes.status}).`,
+        );
+      }
+      console.info("[preview] /assign ok", assignBody);
 
       // The session row captures what the volunteer picked at the door
       // so the household page can resolve the right survey + script.
+      console.info("[preview] starting knock session");
       const sessRes = await fetch("/api/knocker/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -110,17 +119,26 @@ export function PreviewWalkbook({
         }),
       });
       const sessBody = await sessRes.json().catch(() => ({}));
-      if (!sessRes.ok) throw new Error(sessBody.error ?? `${sessRes.status}`);
+      if (!sessRes.ok) {
+        console.warn("[preview] /session failed", sessRes.status, sessBody);
+        throw new Error(
+          sessBody.error ?? `Couldn't start your knock session (${sessRes.status}).`,
+        );
+      }
+      console.info("[preview] /session ok", sessBody);
 
-      await fetch("/api/knocker/profile", {
+      // Fire-and-forget — profile updates mustn't block navigation.
+      fetch("/api/knocker/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ speed_rating: pace, availability: "out_in_field" }),
-      }).catch(() => {});
+      }).catch((err) => console.warn("[preview] profile patch failed (non-fatal)", err));
 
+      console.info("[preview] navigating to /app/map?walkbook=", walkbook.id);
       router.push(`/app/map?walkbook=${walkbook.id}`);
     } catch (e) {
-      setError((e as Error).message);
+      console.error("[preview] Start knock session failed:", e);
+      setError((e as Error).message || "Unknown error starting the session.");
       setStarting(false);
     }
   }
@@ -129,6 +147,15 @@ export function PreviewWalkbook({
 
   return (
     <div className="h-full overflow-y-auto p-4">
+      {error ? (
+        <div
+          role="alert"
+          className="mb-3 rounded-md border border-crimson/30 bg-crimson/10 px-3 py-2 text-sm text-crimson"
+        >
+          <p className="font-semibold">Couldn&rsquo;t start knocking</p>
+          <p className="mt-0.5 text-xs">{error}</p>
+        </div>
+      ) : null}
       <p className="text-xs uppercase tracking-widest text-navy-500">Preview</p>
       <h1 className="font-serif text-xl font-semibold text-navy-900">
         {formatWalkbookName(walkbook.name)}
