@@ -1,0 +1,230 @@
+// Canonical Airtable schema. This is the single source of truth for the
+// tables + fields we provision into a client's Airtable base when they
+// upload a voter file. Every mirror / importer path reads column names
+// from here so renames flow through automatically.
+//
+// Notes on Airtable's metadata API field `type` values: see
+// https://airtable.com/developers/web/api/model/field-type — we use
+// `singleLineText`, `multilineText`, `dateTime`, `phoneNumber`,
+// `singleSelect`, `multipleRecordLinks`, and `url`.
+
+export type AirtableFieldType =
+  | "singleLineText"
+  | "multilineText"
+  | "dateTime"
+  | "phoneNumber"
+  | "singleSelect"
+  | "multipleRecordLinks"
+  | "url"
+  | "number"
+  | "checkbox";
+
+export interface CanonicalField {
+  name: string;
+  type: AirtableFieldType;
+  description?: string;
+  // Set for singleSelect — list of choice names.
+  choices?: string[];
+  // Set for multipleRecordLinks — the `key` of the table in this file.
+  linkedTableKey?: CanonicalTableKey;
+}
+
+export type CanonicalTableKey = "voters" | "households" | "knocks" | "conversations";
+
+export interface CanonicalTable {
+  key: CanonicalTableKey;
+  name: string;               // Airtable table name
+  primaryField: string;       // must match a field in `fields`
+  fields: CanonicalField[];
+}
+
+const KNOCK_STATUS_CHOICES = [
+  "not_knocked",
+  "no_answer",
+  "come_back_later",
+  "refused",
+  "contacted",
+  "wrong_address",
+];
+
+const PARTY_CHOICES = ["D", "R", "I", "G", "L", "U"];
+
+const SENTIMENT_CHOICES = ["supportive", "leaning", "neutral", "skeptical", "opposed"];
+
+// ============================================================
+// Voters — one row per registered voter. Primary key is Voter Key (a
+// stable id we generate client-side so the row survives re-imports).
+// Carries the denormalised "latest knock" columns so a campaign can
+// sort/filter the voter grid by status without opening the Knocks table.
+// ============================================================
+export const VOTERS_TABLE: CanonicalTable = {
+  key: "voters",
+  name: "Voters",
+  primaryField: "Voter Key",
+  fields: [
+    { name: "Voter Key", type: "singleLineText", description: "Stable platform id for this voter — do not edit" },
+    { name: "First Name", type: "singleLineText" },
+    { name: "Middle Name", type: "singleLineText" },
+    { name: "Last Name", type: "singleLineText" },
+    { name: "Suffix", type: "singleLineText" },
+    { name: "Address", type: "singleLineText" },
+    { name: "Unit", type: "singleLineText" },
+    { name: "City", type: "singleLineText" },
+    { name: "State", type: "singleLineText" },
+    { name: "Zip", type: "singleLineText" },
+    { name: "Phone", type: "phoneNumber" },
+    { name: "Party", type: "singleSelect", choices: PARTY_CHOICES },
+    { name: "Household", type: "multipleRecordLinks", linkedTableKey: "households" },
+
+    // Flat-file knock state — always the latest knock for this voter.
+    { name: "Last Knock Status", type: "singleSelect", choices: KNOCK_STATUS_CHOICES },
+    { name: "Last Knocked At", type: "dateTime" },
+    { name: "Last Survey", type: "singleLineText" },
+    { name: "Last Script", type: "singleLineText" },
+    { name: "Last Notes", type: "multilineText" },
+
+    // Back-links to the detail tables.
+    { name: "Knocks", type: "multipleRecordLinks", linkedTableKey: "knocks" },
+    { name: "Conversations", type: "multipleRecordLinks", linkedTableKey: "conversations" },
+  ],
+};
+
+// ============================================================
+// Households — deduped by normalised address. Multiple voters at the
+// same address link back to one household record.
+// ============================================================
+export const HOUSEHOLDS_TABLE: CanonicalTable = {
+  key: "households",
+  name: "Households",
+  primaryField: "Household Key",
+  fields: [
+    { name: "Household Key", type: "singleLineText", description: "address+zip hash — do not edit" },
+    { name: "Address", type: "singleLineText" },
+    { name: "Unit", type: "singleLineText" },
+    { name: "City", type: "singleLineText" },
+    { name: "State", type: "singleLineText" },
+    { name: "Zip", type: "singleLineText" },
+    { name: "Last Status", type: "singleSelect", choices: [...KNOCK_STATUS_CHOICES, "mixed"] },
+    { name: "Last Knocked At", type: "dateTime" },
+    { name: "Voters", type: "multipleRecordLinks", linkedTableKey: "voters" },
+  ],
+};
+
+// ============================================================
+// Knocks — one row per knock_event. Full history, linked to the voter.
+// ============================================================
+export const KNOCKS_TABLE: CanonicalTable = {
+  key: "knocks",
+  name: "Knocks",
+  primaryField: "Knock ID",
+  fields: [
+    { name: "Knock ID", type: "singleLineText", description: "client_event_id — do not edit" },
+    { name: "Voter", type: "multipleRecordLinks", linkedTableKey: "voters" },
+    { name: "Status", type: "singleSelect", choices: KNOCK_STATUS_CHOICES },
+    { name: "Knocked At", type: "dateTime" },
+    { name: "Survey", type: "singleLineText" },
+    { name: "Script", type: "singleLineText" },
+    { name: "Notes", type: "multilineText" },
+    { name: "Knocker", type: "singleLineText" },
+  ],
+};
+
+// ============================================================
+// Conversations — one row per recorded + transcribed door conversation.
+// ============================================================
+export const CONVERSATIONS_TABLE: CanonicalTable = {
+  key: "conversations",
+  name: "Conversations",
+  primaryField: "Voice Note ID",
+  fields: [
+    { name: "Voice Note ID", type: "singleLineText", description: "platform id — do not edit" },
+    { name: "Voter", type: "multipleRecordLinks", linkedTableKey: "voters" },
+    { name: "Voter Name", type: "singleLineText" },
+    { name: "Recorded At", type: "dateTime" },
+    { name: "Audio URL", type: "url" },
+    { name: "Transcript", type: "multilineText" },
+    { name: "Summary", type: "multilineText" },
+    { name: "Top Concerns", type: "multilineText" },
+    { name: "Committed", type: "checkbox" },
+    { name: "Tags", type: "multilineText" },
+    { name: "Asks", type: "multilineText" },
+    { name: "Sentiment", type: "singleSelect", choices: SENTIMENT_CHOICES },
+  ],
+};
+
+export const CANONICAL_TABLES: CanonicalTable[] = [
+  VOTERS_TABLE,
+  HOUSEHOLDS_TABLE,
+  KNOCKS_TABLE,
+  CONVERSATIONS_TABLE,
+];
+
+export function tableByKey(key: CanonicalTableKey): CanonicalTable {
+  const t = CANONICAL_TABLES.find((x) => x.key === key);
+  if (!t) throw new Error(`unknown canonical table key: ${key}`);
+  return t;
+}
+
+// Convenience accessors for callers that want a column name without
+// pulling in the whole table definition. Centralising string keys here
+// means a rename in schema.ts ripples through all mirrors + importers.
+export const VOTER_FIELDS = {
+  voterKey: "Voter Key",
+  firstName: "First Name",
+  middleName: "Middle Name",
+  lastName: "Last Name",
+  suffix: "Suffix",
+  address: "Address",
+  unit: "Unit",
+  city: "City",
+  state: "State",
+  zip: "Zip",
+  phone: "Phone",
+  party: "Party",
+  household: "Household",
+  lastStatus: "Last Knock Status",
+  lastKnockedAt: "Last Knocked At",
+  lastSurvey: "Last Survey",
+  lastScript: "Last Script",
+  lastNotes: "Last Notes",
+  knocks: "Knocks",
+  conversations: "Conversations",
+} as const;
+
+export const HOUSEHOLD_FIELDS = {
+  householdKey: "Household Key",
+  address: "Address",
+  unit: "Unit",
+  city: "City",
+  state: "State",
+  zip: "Zip",
+  lastStatus: "Last Status",
+  lastKnockedAt: "Last Knocked At",
+  voters: "Voters",
+} as const;
+
+export const KNOCK_FIELDS = {
+  knockId: "Knock ID",
+  voter: "Voter",
+  status: "Status",
+  knockedAt: "Knocked At",
+  survey: "Survey",
+  script: "Script",
+  notes: "Notes",
+  knocker: "Knocker",
+} as const;
+
+export const CONVERSATION_FIELDS = {
+  voiceNoteId: "Voice Note ID",
+  voter: "Voter",
+  voterName: "Voter Name",
+  recordedAt: "Recorded At",
+  audioUrl: "Audio URL",
+  transcript: "Transcript",
+  summary: "Summary",
+  topConcerns: "Top Concerns",
+  committed: "Committed",
+  tags: "Tags",
+  asks: "Asks",
+  sentiment: "Sentiment",
+} as const;

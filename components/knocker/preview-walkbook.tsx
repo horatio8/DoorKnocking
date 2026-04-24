@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { formatWalkbookName } from "@/lib/walkbooks/display-name";
@@ -21,15 +21,25 @@ interface WalkbookPreview {
   centroid: { lat: number | null; lng: number | null };
 }
 
+interface SurveyChoice {
+  id: string;
+  name: string;
+  pinned: boolean;
+  source: "walkbook" | "district";
+}
+
+interface ScriptChoice {
+  id: string;
+  name: string;
+  body_md: string | null;
+  pinned: boolean;
+}
+
 type Pace = "slow" | "medium" | "fast";
 type Travel = "walking" | "driving";
 
 const PACE_MULTIPLIER: Record<Pace, number> = { slow: 0.85, medium: 1.0, fast: 1.2 };
-const PACE_COPY: Record<Pace, string> = {
-  slow: "Slow",
-  medium: "Medium",
-  fast: "Fast",
-};
+const PACE_COPY: Record<Pace, string> = { slow: "Slow", medium: "Medium", fast: "Fast" };
 const PACE_HINT: Record<Pace, string> = {
   slow: "Plenty of chat",
   medium: "Steady pace",
@@ -41,7 +51,15 @@ const TRAVEL_HINT: Record<Travel, string> = {
   driving: "Rural / spread out",
 };
 
-export function PreviewWalkbook({ walkbook }: { walkbook: WalkbookPreview }) {
+export function PreviewWalkbook({
+  walkbook,
+  surveyChoices = [],
+  scriptChoices = [],
+}: {
+  walkbook: WalkbookPreview;
+  surveyChoices?: SurveyChoice[];
+  scriptChoices?: ScriptChoice[];
+}) {
   const router = useRouter();
   const [stops, setStops] = useState<PreviewStop[] | null>(null);
   const [polyline, setPolyline] = useState<Array<[number, number]> | null>(null);
@@ -50,6 +68,20 @@ export function PreviewWalkbook({ walkbook }: { walkbook: WalkbookPreview }) {
   const [starting, setStarting] = useState(false);
   const [pace, setPace] = useState<Pace>("medium");
   const [travel, setTravel] = useState<Travel>("walking");
+
+  // Auto-pick the pinned survey/script when one exists, otherwise the
+  // first in the list (priority-ordered). Admins intending to lock a
+  // choice will have pinned=true + exactly one item, so this also drives
+  // the "locked" UI — volunteers see no radio buttons.
+  const pinnedSurvey = useMemo(() => surveyChoices.find((s) => s.pinned) ?? null, [surveyChoices]);
+  const pinnedScript = useMemo(() => scriptChoices.find((s) => s.pinned) ?? null, [scriptChoices]);
+  const [surveyId, setSurveyId] = useState<string | null>(
+    pinnedSurvey?.id ?? surveyChoices[0]?.id ?? null,
+  );
+  const [scriptId, setScriptId] = useState<string | null>(
+    pinnedScript?.id ?? scriptChoices[0]?.id ?? null,
+  );
+  const [scriptOpen, setScriptOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,27 +112,25 @@ export function PreviewWalkbook({ walkbook }: { walkbook: WalkbookPreview }) {
       const assignBody = await assignRes.json();
       if (!assignRes.ok) throw new Error(assignBody.error ?? `${assignRes.status}`);
 
+      // The session row captures what the volunteer picked at the door
+      // so the household page can resolve the right survey + script.
       const sessRes = await fetch("/api/knocker/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           walkbook_id: walkbook.id,
           pace_multiplier: PACE_MULTIPLIER[pace],
+          chosen_survey_id: surveyId,
+          chosen_script_id: scriptId,
         }),
       });
       const sessBody = await sessRes.json().catch(() => ({}));
       if (!sessRes.ok) throw new Error(sessBody.error ?? `${sessRes.status}`);
 
-      // Persist pace so admins can see the knocker's declared plan. (Travel
-      // mode is captured as local session context — the profile endpoint
-      // doesn't store it yet; keep it client-side until we add that column.)
       await fetch("/api/knocker/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          speed_rating: pace,
-          availability: "out_in_field",
-        }),
+        body: JSON.stringify({ speed_rating: pace, availability: "out_in_field" }),
       }).catch(() => {});
 
       router.push(`/app/map?walkbook=${walkbook.id}`);
@@ -109,6 +139,10 @@ export function PreviewWalkbook({ walkbook }: { walkbook: WalkbookPreview }) {
       setStarting(false);
     }
   }
+
+  const surveyLocked = pinnedSurvey != null && surveyChoices.length === 1;
+  const scriptLocked = pinnedScript != null && scriptChoices.length === 1;
+  const activeScript = scriptChoices.find((s) => s.id === scriptId) ?? null;
 
   return (
     <div className="h-full overflow-y-auto p-4">
@@ -123,8 +157,7 @@ export function PreviewWalkbook({ walkbook }: { walkbook: WalkbookPreview }) {
           : ""}
       </p>
 
-      {/* Start-plan panel — moved above the stop list so the knocker makes
-          the pace / travel decision before scanning the route. */}
+      {/* Your plan today — travel + pace (unchanged). */}
       <section className="mt-4 rounded-lg border-2 border-navy-100 bg-white p-3">
         <p className="text-xs font-semibold uppercase tracking-widest text-navy-700">
           Your plan today
@@ -145,9 +178,7 @@ export function PreviewWalkbook({ walkbook }: { walkbook: WalkbookPreview }) {
             >
               <span className="text-sm font-semibold">{TRAVEL_COPY[t]}</span>
               <span
-                className={`mt-0.5 text-[11px] ${
-                  travel === t ? "text-white/70" : "text-muted-foreground"
-                }`}
+                className={`mt-0.5 text-[11px] ${travel === t ? "text-white/70" : "text-muted-foreground"}`}
               >
                 {TRAVEL_HINT[t]}
               </span>
@@ -170,22 +201,103 @@ export function PreviewWalkbook({ walkbook }: { walkbook: WalkbookPreview }) {
             >
               <span className="text-sm font-semibold">{PACE_COPY[p]}</span>
               <span
-                className={`mt-0.5 text-[11px] ${
-                  pace === p ? "text-white/70" : "text-muted-foreground"
-                }`}
+                className={`mt-0.5 text-[11px] ${pace === p ? "text-white/70" : "text-muted-foreground"}`}
               >
                 {PACE_HINT[p]}
               </span>
             </button>
           ))}
         </div>
-        <p className="mt-2 text-[11px] text-muted-foreground">
-          Both settings tune the estimated finish time. Change them later from your profile.
-        </p>
       </section>
 
-      {/* Sticky primary action so the knocker doesn't have to scroll past the
-          stop list to hit Start. Back stays inline above. */}
+      {/* Which survey — shows nothing if none attached + no district default,
+          a locked panel if pinned, or a radio picker if multiple available. */}
+      {surveyChoices.length > 0 ? (
+        <section className="mt-4 rounded-lg border-2 border-navy-100 bg-white p-3">
+          <p className="text-xs font-semibold uppercase tracking-widest text-navy-700">
+            Survey{surveyLocked ? " · locked by admin" : ""}
+          </p>
+          {surveyLocked ? (
+            <p className="mt-2 text-sm text-navy-900">{surveyChoices[0]!.name}</p>
+          ) : (
+            <div className="mt-2 grid gap-2">
+              {surveyChoices.map((s) => (
+                <label
+                  key={s.id}
+                  className={`flex cursor-pointer items-start gap-2 rounded-xl border-2 p-3 ${
+                    surveyId === s.id
+                      ? "border-navy-900 bg-navy-50"
+                      : "border-navy-200 bg-white"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="survey"
+                    checked={surveyId === s.id}
+                    onChange={() => setSurveyId(s.id)}
+                    className="mt-1 accent-navy-900"
+                  />
+                  <span className="flex-1">
+                    <span className="block text-sm font-semibold text-navy-900">{s.name}</span>
+                    <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                      {s.source === "district" ? "District default" : "Walkbook attachment"}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      {/* Script disclosure — locked / single / picker — with collapsed body. */}
+      {scriptChoices.length > 0 ? (
+        <section className="mt-4 rounded-lg border-2 border-navy-100 bg-white p-3">
+          <p className="text-xs font-semibold uppercase tracking-widest text-navy-700">
+            Script{scriptLocked ? " · locked by admin" : ""}
+          </p>
+          {scriptLocked ? null : (
+            <div className="mt-2 grid gap-2">
+              {scriptChoices.map((s) => (
+                <label
+                  key={s.id}
+                  className={`flex cursor-pointer items-start gap-2 rounded-xl border-2 p-3 ${
+                    scriptId === s.id
+                      ? "border-navy-900 bg-navy-50"
+                      : "border-navy-200 bg-white"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="script"
+                    checked={scriptId === s.id}
+                    onChange={() => setScriptId(s.id)}
+                    className="mt-1 accent-navy-900"
+                  />
+                  <span className="text-sm font-semibold text-navy-900">{s.name}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          {activeScript ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setScriptOpen((v) => !v)}
+                className="mt-3 text-xs font-semibold text-navy-700 underline"
+              >
+                {scriptOpen ? "Hide script" : "Read the script"}
+              </button>
+              {scriptOpen ? (
+                <pre className="mt-2 whitespace-pre-wrap rounded-md border border-navy-100 bg-parchment/60 p-3 font-sans text-sm text-navy-900">
+                  {activeScript.body_md ?? ""}
+                </pre>
+              ) : null}
+            </>
+          ) : null}
+        </section>
+      ) : null}
+
       <div className="mt-4 flex gap-2">
         <Button variant="outline" onClick={() => router.back()}>
           Back

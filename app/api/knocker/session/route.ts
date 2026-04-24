@@ -28,10 +28,11 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as {
     walkbook_id?: string | null;
     pace_multiplier?: number;
+    chosen_survey_id?: string | null;
+    chosen_script_id?: string | null;
   };
   const supabase = getSupabaseServiceRoleClient();
 
-  // Close any still-open sessions for this user so we don't accumulate orphans.
   await supabase
     .from("knock_sessions")
     .update({ ended_at: new Date().toISOString() })
@@ -44,6 +45,8 @@ export async function POST(req: Request) {
       user_id: session.user.id,
       walkbook_id: body.walkbook_id ?? null,
       pace_multiplier: body.pace_multiplier ?? 1.0,
+      chosen_survey_id: body.chosen_survey_id ?? null,
+      chosen_script_id: body.chosen_script_id ?? null,
     })
     .select("*")
     .single();
