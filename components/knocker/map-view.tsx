@@ -80,15 +80,14 @@ export function MapView({
   // open is noise. They can flip to "show all" from the toggle.
   const [myWalkbookOnly, setMyWalkbookOnly] = useState(myWalkbookIds.length > 0);
   // Tapping a pin or route isolates one walkbook on the map and pops the
-  // bottom-sheet summary. Clearing the selection returns to the filtered
-  // overview.
-  // Seed with ?walkbook=<id> from the URL so starting a knock session
-  // from /app/walkbooks/[id]/preview lands the knocker zoomed and filtered
-  // to their walkbook instead of the whole district — otherwise it's
-  // unclear what to do next.
-  const [selectedWalkbookId, setSelectedWalkbookId] = useState<string | null>(
-    incomingWalkbookId,
-  );
+  // bottom-sheet summary (selectedWalkbookId). The URL ?walkbook=<id> is a
+  // separate "focus" hint — it scopes + zooms the map to one walkbook
+  // without opening the sheet, since the volunteer arriving from Start
+  // Knock Session should land on 'tap a house to start', not on a
+  // sheet whose primary button sends them right back to preview.
+  const [selectedWalkbookId, setSelectedWalkbookId] = useState<string | null>(null);
+  const focusWalkbookId = incomingWalkbookId;
+  const scopedWalkbookId = selectedWalkbookId ?? focusWalkbookId;
   const [position, setPosition] = useState<{ lat: number; lng: number } | null>(null);
 
   const hydrate = useFieldStore((s) => s.hydrate);
@@ -139,31 +138,31 @@ export function MapView({
   }, []);
 
   // Which walkbooks to show on the map. Precedence:
-  //   selectedWalkbookId → just that one
+  //   scopedWalkbookId   → just that one (from pin-tap or ?walkbook URL)
   //   myWalkbookOnly     → only my assigned walkbooks
   //   otherwise          → everything
   const mineSet = useMemo(() => new Set(myWalkbookIds), [myWalkbookIds]);
   const selfAssignedSet = useMemo(() => new Set(selfAssignedIds), [selfAssignedIds]);
   const visibleWalkbooks = useMemo(() => {
-    if (selectedWalkbookId) {
-      return walkbookViz.filter((w) => w.id === selectedWalkbookId);
+    if (scopedWalkbookId) {
+      return walkbookViz.filter((w) => w.id === scopedWalkbookId);
     }
     if (!myWalkbookOnly || mineSet.size === 0) return walkbookViz;
     return walkbookViz.filter((w) => mineSet.has(w.id));
-  }, [walkbookViz, myWalkbookOnly, mineSet, selectedWalkbookId]);
+  }, [walkbookViz, myWalkbookOnly, mineSet, scopedWalkbookId]);
 
   // Households to plot — filtered by status, narrowed to:
-  //   selectedWalkbookId → households in that one walkbook only
+  //   scopedWalkbookId   → households in that one walkbook only
   //   myWalkbookOnly     → households in any of my walkbooks
   //   otherwise          → all households in the district
   const visibleHouseholds = useMemo(() => {
     const inScope = new Set<string>();
-    const scopedWalkbooks: typeof walkbookViz = selectedWalkbookId
-      ? walkbookViz.filter((w) => w.id === selectedWalkbookId)
+    const scopedWalkbooks: typeof walkbookViz = scopedWalkbookId
+      ? walkbookViz.filter((w) => w.id === scopedWalkbookId)
       : myWalkbookOnly && mineSet.size > 0
         ? walkbookViz.filter((w) => mineSet.has(w.id))
         : [];
-    const scopedOn = selectedWalkbookId || (myWalkbookOnly && mineSet.size > 0);
+    const scopedOn = scopedWalkbookId || (myWalkbookOnly && mineSet.size > 0);
     if (scopedOn) {
       const stopKeys = new Set<string>();
       for (const w of scopedWalkbooks) {
@@ -179,7 +178,7 @@ export function MapView({
       if (scopedOn && !inScope.has(h.id)) return false;
       return true;
     });
-  }, [households, statusFilter, myWalkbookOnly, mineSet, walkbookViz, selectedWalkbookId]);
+  }, [households, statusFilter, myWalkbookOnly, mineSet, walkbookViz, scopedWalkbookId]);
 
   const householdFC = useMemo(
     () => ({
@@ -381,14 +380,16 @@ export function MapView({
   // isolated walkbook fills the viewport.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !selectedWalkbookId) return;
-    const w = walkbookViz.find((v) => v.id === selectedWalkbookId);
+    if (!map || !scopedWalkbookId) return;
+    const w = walkbookViz.find((v) => v.id === scopedWalkbookId);
     if (!w || w.stops.length === 0) return;
     const bounds = new mapboxgl.LngLatBounds();
     for (const s of w.stops) bounds.extend([s.lng, s.lat]);
     map.fitBounds(bounds, { padding: 64, maxZoom: 17, duration: 450 });
-  }, [selectedWalkbookId, walkbookViz]);
+  }, [scopedWalkbookId, walkbookViz]);
 
+  // Sheet opens ONLY when the user explicitly taps a walkbook pin
+  // (selectedWalkbookId). A URL-seeded focus does not open the sheet.
   const selectedWalkbook = useMemo(
     () => (selectedWalkbookId ? walkbookViz.find((w) => w.id === selectedWalkbookId) ?? null : null),
     [selectedWalkbookId, walkbookViz],
@@ -445,7 +446,7 @@ export function MapView({
             );
           })}
         </div>
-        {mineCount > 0 && !selectedWalkbookId ? (
+        {mineCount > 0 && !scopedWalkbookId ? (
           <div className="pointer-events-auto mt-1.5 flex justify-center">
             <button
               onClick={() => setMyWalkbookOnly((v) => !v)}
@@ -461,10 +462,19 @@ export function MapView({
             </button>
           </div>
         ) : null}
-        {selectedWalkbookId ? (
+        {scopedWalkbookId ? (
           <div className="pointer-events-auto mt-1.5 flex justify-center">
             <button
-              onClick={() => setSelectedWalkbookId(null)}
+              onClick={() => {
+                setSelectedWalkbookId(null);
+                // Strip the ?walkbook=<id> query param so the focus
+                // clears for URL-seeded arrivals too.
+                if (focusWalkbookId && typeof window !== "undefined") {
+                  window.history.replaceState(null, "", "/app/map");
+                  // Re-run the filter memos by forcing a state update.
+                  router.refresh();
+                }
+              }}
               className="rounded-full border border-navy-100 bg-white/90 px-3 py-1 text-[11px] font-medium text-navy shadow-sm backdrop-blur"
             >
               ← Back to all walkbooks
@@ -482,7 +492,7 @@ export function MapView({
           <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex flex-col items-center gap-2 px-3">
             <div className="pointer-events-auto w-full max-w-md rounded-xl border border-navy-100 bg-white/95 px-4 py-3 text-center shadow-lg backdrop-blur">
               <p className="text-sm font-semibold text-navy-900">
-                {selectedWalkbookId
+                {scopedWalkbookId
                   ? "Tap a house on the map to start knocking"
                   : "Select your starting house"}
               </p>

@@ -2,7 +2,6 @@ import { redirect, notFound } from "next/navigation";
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { PreviewWalkbook } from "@/components/knocker/preview-walkbook";
-import { DevRouteBanner } from "@/components/knocker/dev-route-banner";
 
 export const dynamic = "force-dynamic";
 
@@ -88,22 +87,19 @@ export default async function WalkbookPreviewPage({
   }
 
   return (
-    <>
-      <DevRouteBanner label="PREVIEW PAGE" />
-      <PreviewWalkbook
-        walkbook={{
-          id: walkbook.id,
-          name: walkbook.name,
-          description: walkbook.description ?? "",
-          household_count: walkbook.household_count,
-          estimated_duration_minutes: walkbook.estimated_duration_minutes,
-          centroid: {
-            lat: walkbook.centroid_lat,
-            lng: walkbook.centroid_lng,
-          },
-        }}
-        surveyChoices={surveyChoices}
-      />
-    </>
+    <PreviewWalkbook
+      walkbook={{
+        id: walkbook.id,
+        name: walkbook.name,
+        description: walkbook.description ?? "",
+        household_count: walkbook.household_count,
+        estimated_duration_minutes: walkbook.estimated_duration_minutes,
+        centroid: {
+          lat: walkbook.centroid_lat,
+          lng: walkbook.centroid_lng,
+        },
+      }}
+      surveyChoices={surveyChoices}
+    />
   );
 }
