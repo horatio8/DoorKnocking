@@ -27,6 +27,27 @@ interface UploadResponse {
 
 type Step = "upload" | "review" | "provision" | "push" | "done";
 
+interface ImportJobSnapshot {
+  id: string;
+  status:
+    | "queued"
+    | "pushing"
+    | "pushed"
+    | "importing"
+    | "imported"
+    | "failed"
+    | "paused";
+  rows_total: number;
+  rows_pushed: number;
+  rows_fetched: number;
+  rows_geocoded: number;
+  rows_imported: number;
+  rows_failed: number;
+  error_message: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
 const STEPS: Array<{ key: Step; label: string }> = [
   { key: "upload", label: "1. Upload file" },
   { key: "review", label: "2. Review mapping" },
@@ -55,6 +76,8 @@ export function AirtableFileUploadWizard({ districtId, districtName, hasCanonica
     hasCanonicalBase ? { base_id: "(already provisioned)", reused: true } : null,
   );
   const [pushSummary, setPushSummary] = useState<string | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [jobStatus, setJobStatus] = useState<ImportJobSnapshot | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -123,6 +146,44 @@ export function AirtableFileUploadWizard({ districtId, districtName, hasCanonica
     };
   }, [districtId]);
 
+  // Poll the import_jobs row every 2s while one is active so the
+  // admin sees live counters. Stops polling once the job settles
+  // (imported or failed). The cron worker owns the row; we only read.
+  useEffect(() => {
+    if (!jobId) return;
+    let cancelled = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    async function tick() {
+      try {
+        const res = await fetch(`/api/admin/import-jobs/${jobId}`);
+        const body = await res.json();
+        if (cancelled || !res.ok) return;
+        const job = body.job as ImportJobSnapshot;
+        setJobStatus(job);
+        if (job.status === "imported") {
+          setPushSummary(
+            `Imported ${job.rows_imported} voter${job.rows_imported === 1 ? "" : "s"} · ${job.rows_geocoded} geocoded${job.rows_failed > 0 ? ` · ${job.rows_failed} skipped` : ""}`,
+          );
+          setStep("done");
+          router.refresh();
+          return;
+        }
+        if (job.status === "failed") {
+          setError(job.error_message || "Import failed.");
+          return;
+        }
+      } catch {
+        // Transient — keep polling.
+      }
+      if (!cancelled) timeout = setTimeout(tick, 2000);
+    }
+    tick();
+    return () => {
+      cancelled = true;
+      if (timeout) clearTimeout(timeout);
+    };
+  }, [jobId, router]);
+
   async function provisionBase() {
     setBusy(
       provisionMode === "existing"
@@ -154,8 +215,9 @@ export function AirtableFileUploadWizard({ districtId, districtName, hasCanonica
   async function pushRows() {
     if (!uploadState) return;
     if (!confirm(`Push ${uploadState.import_file.row_count} rows into Airtable and import?`)) return;
-    setBusy("Pushing rows to Airtable + Supabase…");
+    setBusy("Queuing the import…");
     setError(null);
+    setJobStatus(null);
     try {
       const res = await fetch("/api/admin/airtable/push", {
         method: "POST",
@@ -164,10 +226,12 @@ export function AirtableFileUploadWizard({ districtId, districtName, hasCanonica
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? `${res.status}`);
-      setPushSummary(
-        `Pushed ${body.pushed ?? "?"} Airtable rows · imported ${body.imported ?? "?"} voters`,
-      );
-      setStep("done");
+      // Kick the worker immediately so the admin doesn't wait up to
+      // 60s for the next cron tick. Fire-and-forget — the worker is
+      // idempotent and the cron will pick up anything we miss.
+      fetch("/api/cron/import-worker").catch(() => undefined);
+      setJobId(body.job_id as string);
+      setBusy(null);
       router.refresh();
     } catch (e) {
       setError((e as Error).message);
@@ -263,7 +327,8 @@ export function AirtableFileUploadWizard({ districtId, districtName, hasCanonica
           <h2 className="font-medium text-navy-900">Push {uploadState?.import_file.row_count ?? "?"} rows</h2>
           <p className="text-xs text-muted-foreground">
             Pushes to the canonical Airtable base and upserts into the
-            platform database in one pass.
+            platform database in the background. Safe to leave this page
+            open or come back — the worker polls every minute.
           </p>
           {provisionResult ? (
             <p className="text-[11px] text-muted-foreground">
@@ -271,12 +336,26 @@ export function AirtableFileUploadWizard({ districtId, districtName, hasCanonica
               {provisionResult.reused ? " · reused existing" : " · created just now"}
             </p>
           ) : null}
+
+          {jobStatus ? (
+            <ImportJobProgress job={jobStatus} />
+          ) : jobId ? (
+            <p className="rounded-md border border-navy-100 bg-navy-50/40 px-3 py-2 text-xs text-navy-700">
+              Job queued — waiting for the worker to pick it up…
+            </p>
+          ) : null}
+
           <div className="flex gap-2">
-            <Button type="button" variant="outline" onClick={() => setStep("review")}>
+            <Button type="button" variant="outline" onClick={() => setStep("review")} disabled={!!jobId}>
               Back
             </Button>
-            <Button type="button" variant="accent" onClick={pushRows} disabled={!!busy}>
-              {busy ?? "Push rows"}
+            <Button
+              type="button"
+              variant="accent"
+              onClick={pushRows}
+              disabled={!!busy || !!jobId}
+            >
+              {busy ?? (jobId ? "Running in background…" : "Push rows")}
             </Button>
           </div>
         </div>
@@ -588,5 +667,74 @@ function ModeButton({
     >
       {children}
     </button>
+  );
+}
+
+function ImportJobProgress({ job }: { job: ImportJobSnapshot }) {
+  const phaseLabel: Record<ImportJobSnapshot["status"], string> = {
+    queued: "Waiting to start…",
+    pushing: "Pushing rows to Airtable…",
+    pushed: "Airtable sync complete — starting import…",
+    importing: "Importing + geocoding…",
+    imported: "Done.",
+    failed: "Failed.",
+    paused: "Paused.",
+  };
+  const total = Math.max(job.rows_total, 1);
+  const pushedPct = Math.min(100, Math.round((job.rows_pushed / total) * 100));
+  const importedPct = Math.min(100, Math.round((job.rows_imported / total) * 100));
+  const elapsed = job.started_at
+    ? Math.max(0, Math.round((Date.now() - new Date(job.started_at).getTime()) / 1000))
+    : 0;
+  return (
+    <div className="space-y-3 rounded-md border border-navy-100 bg-navy-50/40 p-3 text-xs">
+      <div className="flex items-center justify-between text-navy-900">
+        <span className="font-semibold">{phaseLabel[job.status]}</span>
+        {job.started_at && job.status !== "imported" && job.status !== "failed" ? (
+          <span className="text-[10px] text-muted-foreground">
+            {Math.floor(elapsed / 60)}m {elapsed % 60}s elapsed
+          </span>
+        ) : null}
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+          <span>Airtable push</span>
+          <span>
+            {job.rows_pushed.toLocaleString()} / {job.rows_total.toLocaleString()}
+          </span>
+        </div>
+        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-navy-100">
+          <div
+            className="h-full bg-navy-900 transition-all"
+            style={{ width: `${pushedPct}%` }}
+          />
+        </div>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+          <span>
+            Supabase import · {job.rows_geocoded.toLocaleString()} geocoded
+            {job.rows_failed > 0 ? ` · ${job.rows_failed.toLocaleString()} skipped` : ""}
+          </span>
+          <span>
+            {job.rows_imported.toLocaleString()} / {job.rows_total.toLocaleString()}
+          </span>
+        </div>
+        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-navy-100">
+          <div
+            className="h-full bg-emerald-600 transition-all"
+            style={{ width: `${importedPct}%` }}
+          />
+        </div>
+      </div>
+
+      {job.status === "failed" && job.error_message ? (
+        <p className="rounded bg-crimson/10 px-2 py-1 text-[11px] text-crimson">
+          {job.error_message}
+        </p>
+      ) : null}
+    </div>
   );
 }

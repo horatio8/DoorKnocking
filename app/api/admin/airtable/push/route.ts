@@ -1,19 +1,21 @@
 import { NextResponse } from "next/server";
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
-import { resolveAirtableTokenForDistrict } from "@/lib/airtable/credentials";
-import { pushFromFile } from "@/lib/airtable/push-from-file";
-import type { FieldMapping } from "@/lib/airtable/mapping";
+import { enqueueImportJob } from "@/lib/imports/jobs";
 
 // POST /api/admin/airtable/push
 //   { import_file_id }
 //
-// Pushes a staged file into the canonical Airtable base, then runs the
-// regular importer so the Supabase side catches up. The district must
-// already have airtable_is_canonical=true and the four canonical
-// table ids set (done by /api/admin/airtable/provision).
-
-export const maxDuration = 300;
+// Now a queue-and-return endpoint. The old behaviour ran the whole
+// push + import inline, which blew through Vercel's 5-min window on
+// larger files. Today we only validate the file + district state,
+// enqueue an import_jobs row, and return the job id. The cron worker
+// at /api/cron/import-worker drains the queue asynchronously; the
+// admin UI polls /api/admin/import-jobs/[id] for progress.
+//
+// Idempotency: if a runnable job already exists for this import_file,
+// we return it instead of creating a duplicate. Admins hitting "Push
+// rows" twice in a row won't double-process.
 
 export async function POST(req: Request) {
   const session = await loadSession();
@@ -30,7 +32,7 @@ export async function POST(req: Request) {
 
   const { data: fileRow, error: fErr } = await supabase
     .from("import_files")
-    .select("*")
+    .select("id, district_id, mapping, status, row_count")
     .eq("id", body.import_file_id)
     .maybeSingle();
   if (fErr || !fileRow) {
@@ -39,13 +41,15 @@ export async function POST(req: Request) {
   const f = fileRow as {
     id: string;
     district_id: string;
-    storage_path: string;
-    original_filename: string;
-    mapping: FieldMapping | null;
+    mapping: Record<string, unknown> | null;
     status: string;
+    row_count: number | null;
   };
   if (!f.mapping) {
-    return NextResponse.json({ error: "mapping not saved — confirm the review step first" }, { status: 409 });
+    return NextResponse.json(
+      { error: "mapping not saved — confirm the review step first" },
+      { status: 409 },
+    );
   }
 
   const { data: dRow } = await supabase
@@ -63,43 +67,39 @@ export async function POST(req: Request) {
         airtable_households_table_id: string | null;
       }
     | null;
-  if (!d?.airtable_is_canonical || !d.airtable_base_id || !d.airtable_voters_table_id || !d.airtable_households_table_id) {
+  if (
+    !d?.airtable_is_canonical ||
+    !d.airtable_base_id ||
+    !d.airtable_voters_table_id ||
+    !d.airtable_households_table_id
+  ) {
     return NextResponse.json(
       { error: "district has no canonical base — run /provision first" },
       { status: 409 },
     );
   }
 
-  const creds = await resolveAirtableTokenForDistrict(f.district_id);
-  if (!creds?.token) {
-    return NextResponse.json({ error: "no airtable token" }, { status: 412 });
+  // Reuse an existing runnable job for this file if there is one. Keeps
+  // double-clicks + replayed POSTs from stacking up duplicates.
+  const { data: existing } = await supabase
+    .from("import_jobs")
+    .select("id, status")
+    .eq("import_file_id", f.id)
+    .in("status", ["queued", "pushing", "pushed", "importing"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (existing) {
+    const row = existing as { id: string; status: string };
+    return NextResponse.json({ job_id: row.id, status: row.status, already: true });
   }
 
-  try {
-    const result = await pushFromFile({
-      supabase,
-      districtId: f.district_id,
-      importFileId: f.id,
-      baseId: d.airtable_base_id,
-      votersTableId: d.airtable_voters_table_id,
-      householdsTableId: d.airtable_households_table_id,
-      mapping: f.mapping,
-      storagePath: f.storage_path,
-      originalFilename: f.original_filename,
-      airtableToken: creds.token,
-    });
-    return NextResponse.json({
-      ok: true,
-      pushed: result.voters_pushed,
-      households_pushed: result.households_pushed,
-      imported: result.import_summary.voters_upserted,
-      summary: result.import_summary,
-    });
-  } catch (err) {
-    await supabase
-      .from("import_files")
-      .update({ status: "failed", error_message: (err as Error).message })
-      .eq("id", f.id);
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
-  }
+  const job = await enqueueImportJob(supabase, {
+    importFileId: f.id,
+    districtId: f.district_id,
+    createdBy: session.user.id,
+    rowsTotal: f.row_count ?? 0,
+  });
+
+  return NextResponse.json({ job_id: job.id, status: job.status, already: false });
 }

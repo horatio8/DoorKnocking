@@ -22,7 +22,18 @@ export interface PushFromFileArgs {
   storagePath: string;
   originalFilename: string;
   airtableToken: string;
+  // Progress reporter — called at the transition between phases so a
+  // caller running inside the cron worker can patch the import_jobs
+  // row without knowing anything about our internals.
+  onProgress?: (event: PushProgressEvent) => Promise<void>;
 }
+
+export type PushProgressEvent =
+  | { phase: "parsed"; rowsTotal: number }
+  | { phase: "pushing" }
+  | { phase: "pushed"; householdsPushed: number; votersPushed: number }
+  | { phase: "importing" }
+  | { phase: "imported"; summary: Awaited<ReturnType<typeof runImport>> };
 
 export interface PushResult {
   parsed_rows: number;
@@ -135,7 +146,10 @@ export async function pushFromFile(args: PushFromFileArgs): Promise<PushResult> 
     mapped.push({ voterKey, householdKey: hhKey, voterFields, householdFields });
   }
 
+  await args.onProgress?.({ phase: "parsed", rowsTotal: parsed.rowCount });
+
   // 3. Push households first so linked-record field on voters resolves.
+  await args.onProgress?.({ phase: "pushing" });
   const airtable = new AirtableClient(airtableToken);
   const householdRecords = [...householdByKey.values()].map((fields) => ({ fields }));
   const createdHouseholds = await airtable.batchCreate(baseId, householdsTableId, householdRecords);
@@ -153,10 +167,16 @@ export async function pushFromFile(args: PushFromFileArgs): Promise<PushResult> 
       pushed_at: new Date().toISOString(),
     })
     .eq("id", importFileId);
+  await args.onProgress?.({
+    phase: "pushed",
+    householdsPushed: createdHouseholds.length,
+    votersPushed: createdVoters.length,
+  });
 
   // 6. Pull everything back into Supabase via the existing importer.
   // The canonical schema is an identity map, so no per-district mapping
   // work is needed.
+  await args.onProgress?.({ phase: "importing" });
   const importSummary = await runImport({
     supabase,
     districtId,
@@ -171,6 +191,7 @@ export async function pushFromFile(args: PushFromFileArgs): Promise<PushResult> 
     .from("import_files")
     .update({ status: "imported", imported_at: new Date().toISOString() })
     .eq("id", importFileId);
+  await args.onProgress?.({ phase: "imported", summary: importSummary });
 
   return {
     parsed_rows: parsed.rowCount,
