@@ -252,26 +252,40 @@ export async function addCanonicalTablesToBase(
     await sleep(FIELD_CREATE_DELAY_MS);
   }
 
-  // Pass 2: linked-record fields. Skip any that already exist on the
-  // target table (admin's resume case, or they added the link by hand).
-  // Re-fetch schema after pass 1 so we know the current field names on
-  // every table, including ones we just created.
+  // Pass 2: linked-record fields. Skip when the source table already has
+  // ANY multipleRecordLinks field pointing at the target table — we
+  // don't care what it's named. Airtable auto-generates reverse links
+  // bidirectionally, so a prior install may have left the link under a
+  // different name ("Voters" instead of "Voter") and trying to add
+  // another throws DUPLICATE_OR_EMPTY_FIELD_NAME on the auto-generated
+  // reverse side. Re-fetch schema after pass 1 so the check sees the
+  // latest state of every table.
   const refreshed = await listTables(token, baseId);
-  const fieldNamesByTableId = new Map<string, Set<string>>();
-  for (const t of refreshed) {
-    fieldNamesByTableId.set(
-      t.id,
-      new Set(t.fields.map((f) => f.name.toLowerCase())),
-    );
+  const tablesById = new Map(refreshed.map((t) => [t.id, t]));
+
+  function hasLinkTo(sourceTableId: string, targetTableId: string): boolean {
+    const src = tablesById.get(sourceTableId);
+    if (!src) return false;
+    return src.fields.some((f) => {
+      if (f.type !== "multipleRecordLinks") return false;
+      const linked = (f.options as { linkedTableId?: string } | undefined)?.linkedTableId;
+      return linked === targetTableId;
+    });
   }
 
   for (const t of CANONICAL_TABLES) {
     const tableId = tableIdsByKey[t.key]!;
-    const already = fieldNamesByTableId.get(tableId) ?? new Set<string>();
     for (const f of splitFields(t).linked) {
-      if (already.has(f.name.toLowerCase())) continue;
+      const targetTableId = tableIdsByKey[f.linkedTableKey!]!;
+      if (hasLinkTo(tableId, targetTableId)) continue;
       await createField(token, baseId, tableId, toAirtableField(f, tableIdsByKey));
       await sleep(FIELD_CREATE_DELAY_MS);
+      // Re-fetch so the NEXT iteration sees the auto-generated reverse
+      // on the target table and skips trying to add it from the other
+      // side.
+      const next = await listTables(token, baseId);
+      tablesById.clear();
+      for (const rt of next) tablesById.set(rt.id, rt);
     }
   }
 
