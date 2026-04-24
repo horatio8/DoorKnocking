@@ -173,14 +173,27 @@ export default async function WalkbookDetail({ params }: { params: { id: string 
         <ArrowLeft className="h-4 w-4" /> All walkbooks
       </Link>
 
-      <div>
-        <h1 className="font-serif text-2xl font-semibold text-navy-900">
-          {formatWalkbookName(wb.name)}
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          {wb.household_count} households · {wb.status}
-          {est ? ` · est ${est}m` : ""}
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-serif text-2xl font-semibold text-navy-900">
+            {formatWalkbookName(wb.name)}
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            {wb.household_count} households · {wb.status}
+            {est ? ` · est ${est}m` : ""}
+            {assignees.length > 0
+              ? ` · assigned to ${assignees
+                  .map((u) => u.display_name || u.email || "?")
+                  .join(", ")}`
+              : " · unassigned"}
+          </p>
+        </div>
+        <Link
+          href="/admin/walkbooks/assign"
+          className="rounded-md bg-navy px-3 py-2 text-sm font-medium text-white hover:bg-navy-800"
+        >
+          {assignees.length === 0 ? "Assign to a volunteer" : "Edit assignments"}
+        </Link>
       </div>
 
       <WalkbookRouteMap walkbookId={wb.id} stops={stops} />
