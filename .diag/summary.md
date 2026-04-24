@@ -1,4 +1,4 @@
-# diag @ 2026-04-24T21:30:45.132Z
+# diag @ 2026-04-24T22:16:29.442Z
 
 ## env
 - has_NEXT_PUBLIC_SUPABASE_URL: true
@@ -40,7 +40,7 @@
 - walkbook_assignments: 71
 - walk_time_calibration: 2
 - walkbook_generation_runs: 4
-- knock_events: 31
+- knock_events: 32
 - surveys: 3
 - survey_questions: 13
 - survey_responses: 0
@@ -50,7 +50,7 @@
 
 ## vercel
 - state: READY
-- sha: 6823ae6
+- sha: fe7124e
 - target: production
-- created: 2026-04-24T21:00:47Z
-- url: door-knocking-hk74692bv-tellerconsulting.vercel.app
+- created: 2026-04-24T22:15:32Z
+- url: door-knocking-bnny1orlu-tellerconsulting.vercel.app
