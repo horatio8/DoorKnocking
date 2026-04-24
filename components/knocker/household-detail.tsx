@@ -58,6 +58,7 @@ export function HouseholdDetail({
   const [notes, setNotes] = useState("");
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
 
   const pillColor = HOUSEHOLD_PIN_COLORS[household.status];
@@ -75,37 +76,49 @@ export function HouseholdDetail({
 
   async function handleNoAnswer() {
     setSubmitting(true);
-    await recordKnock({
-      household,
-      voterId: null,
-      status: "no_answer",
-      walkbookId: null,
-      surveyId: null,
-    });
-    setSubmitting(false);
-    router.push("/app/map");
-    router.refresh();
+    setSubmitError(null);
+    try {
+      await recordKnock({
+        household,
+        voterId: null,
+        status: "no_answer",
+        walkbookId: null,
+        surveyId: null,
+      });
+      router.push("/app/map");
+      router.refresh();
+    } catch (err) {
+      setSubmitError((err as Error).message || "Could not save knock — try again.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   async function handleCommit() {
     if (!selectedVoter || !activeStatus) return;
     setSubmitting(true);
+    setSubmitError(null);
     const knockStatus: KnockStatus = activeStatus;
     const shouldLaunchSurvey = activeStatus === "contacted" && survey !== null;
-    const event = await recordKnock({
-      household,
-      voterId: selectedVoter.id,
-      status: knockStatus,
-      walkbookId: null,
-      surveyId: shouldLaunchSurvey ? survey?.id ?? null : null,
-      notes: notes.trim() || undefined,
-    });
-    setSubmitting(false);
-    if (shouldLaunchSurvey) {
-      router.push(`/app/survey/${event.id}`);
-    } else {
-      router.push("/app/map");
-      router.refresh();
+    try {
+      const event = await recordKnock({
+        household,
+        voterId: selectedVoter.id,
+        status: knockStatus,
+        walkbookId: null,
+        surveyId: shouldLaunchSurvey ? survey?.id ?? null : null,
+        notes: notes.trim() || undefined,
+      });
+      if (shouldLaunchSurvey) {
+        router.push(`/app/survey/${event.id}`);
+      } else {
+        router.push("/app/map");
+        router.refresh();
+      }
+    } catch (err) {
+      setSubmitError((err as Error).message || "Could not save knock — try again.");
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -180,6 +193,11 @@ export function HouseholdDetail({
       </section>
 
       <div className="fixed inset-x-0 bottom-16 z-20 border-t border-border bg-white/95 p-3 backdrop-blur">
+        {submitError && !selectedVoter ? (
+          <p className="mb-2 rounded-md border border-crimson/30 bg-crimson/10 px-3 py-2 text-[12px] text-crimson">
+            {submitError}
+          </p>
+        ) : null}
         <Button
           onClick={handleNoAnswer}
           disabled={submitting}
@@ -289,6 +307,11 @@ export function HouseholdDetail({
                   <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
                     No survey is live for this district yet — ask your admin to publish one. Your
                     knock will still be logged.
+                  </p>
+                ) : null}
+                {submitError ? (
+                  <p className="mt-4 rounded-md border border-crimson/30 bg-crimson/10 px-3 py-2 text-[12px] text-crimson">
+                    {submitError}
                   </p>
                 ) : null}
                 <div className="mt-5 flex gap-2">

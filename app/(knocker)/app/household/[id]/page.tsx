@@ -51,41 +51,67 @@ export default async function HouseholdPage({ params }: { params: { id: string }
   //      highest priority)
   //   3. The district's active default survey (status='active')
   //   4. null → graceful "no survey" state
-  const { data: openSession } = await supabase
-    .from("knock_sessions")
-    .select("walkbook_id, chosen_survey_id, chosen_script_id")
-    .eq("user_id", session.user.id)
-    .is("ended_at", null)
-    .order("started_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const open = openSession as {
+  //
+  // The walkbook_surveys table + chosen_survey_id / chosen_script_id
+  // columns on knock_sessions ship in migration 20260419000005. We treat
+  // every query here as best-effort so a missing migration degrades to
+  // the district default instead of 500'ing the page.
+  type OpenSession = {
     walkbook_id: string | null;
     chosen_survey_id: string | null;
     chosen_script_id: string | null;
-  } | null;
+  };
+  let open: OpenSession | null = null;
+  try {
+    const { data: openSession, error: sessErr } = await supabase
+      .from("knock_sessions")
+      .select("walkbook_id, chosen_survey_id, chosen_script_id")
+      .eq("user_id", session.user.id)
+      .is("ended_at", null)
+      .order("started_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (sessErr) {
+      console.warn("household: knock_sessions lookup failed, falling back:", sessErr.message);
+    } else {
+      open = (openSession as OpenSession | null) ?? null;
+    }
+  } catch (err) {
+    console.warn("household: knock_sessions query threw:", (err as Error).message);
+  }
 
   let resolvedSurveyId: string | null = open?.chosen_survey_id ?? null;
 
   if (!resolvedSurveyId && open?.walkbook_id) {
-    const { data: wbSurveys } = await supabase
-      .from("walkbook_surveys")
-      .select("survey_id, pinned, priority")
-      .eq("walkbook_id", open.walkbook_id)
-      .order("pinned", { ascending: false })
-      .order("priority", { ascending: false })
-      .limit(1);
-    resolvedSurveyId = ((wbSurveys ?? []) as Array<{ survey_id: string }>)[0]?.survey_id ?? null;
+    try {
+      const { data: wbSurveys, error: wbErr } = await supabase
+        .from("walkbook_surveys")
+        .select("survey_id, pinned, priority")
+        .eq("walkbook_id", open.walkbook_id)
+        .order("pinned", { ascending: false })
+        .order("priority", { ascending: false })
+        .limit(1);
+      if (wbErr) {
+        console.warn("household: walkbook_surveys lookup failed:", wbErr.message);
+      } else {
+        resolvedSurveyId = ((wbSurveys ?? []) as Array<{ survey_id: string }>)[0]?.survey_id ?? null;
+      }
+    } catch (err) {
+      console.warn("household: walkbook_surveys query threw:", (err as Error).message);
+    }
   }
 
   if (!resolvedSurveyId) {
-    const { data: districtActive } = await supabase
+    const { data: districtActive, error: daErr } = await supabase
       .from("surveys")
       .select("id")
       .eq("district_id", hh.district_id)
       .eq("status", "active")
       .order("priority", { ascending: false })
       .limit(1);
+    if (daErr) {
+      console.warn("household: district active survey lookup failed:", daErr.message);
+    }
     resolvedSurveyId = ((districtActive ?? []) as Array<{ id: string }>)[0]?.id ?? null;
   }
 
