@@ -2,6 +2,7 @@ import { requireOnboardedKnocker } from "@/lib/auth/onboarding";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import type { Household, Walkbook } from "@/lib/types";
 import { MapView } from "@/components/knocker/map-view";
+import { DevRouteBanner } from "@/components/knocker/dev-route-banner";
 
 export const dynamic = "force-dynamic";
 
@@ -99,15 +100,31 @@ export default async function MapPage() {
     }
   }
 
+  console.info(
+    "[server/map] rendered for user",
+    session.user.id,
+    "district",
+    session.district.id,
+    "households",
+    households.length,
+    "walkbooks",
+    walkbooks.length,
+  );
+
   return (
-    <MapView
-      userId={session.user.id}
-      districtId={session.district.id}
-      households={households}
-      walkbooks={walkbooks}
-      walkbookViz={walkbookViz}
-      myWalkbookIds={myWalkbookIds}
-      selfAssignedIds={selfAssignedIds}
-    />
+    <div className="flex h-full flex-col">
+      <DevRouteBanner label="MAP PAGE" />
+      <div className="min-h-0 flex-1">
+        <MapView
+          userId={session.user.id}
+          districtId={session.district.id}
+          households={households}
+          walkbooks={walkbooks}
+          walkbookViz={walkbookViz}
+          myWalkbookIds={myWalkbookIds}
+          selfAssignedIds={selfAssignedIds}
+        />
+      </div>
+    </div>
   );
 }
