@@ -40,12 +40,24 @@ const TYPE_LABELS: Record<SurveyQuestionType, string> = {
   info: "Info screen",
 };
 
+export interface EditorWalkbook {
+  id: string;
+  name: string;
+  household_count: number;
+  status: string;
+  kind: string;
+}
+
 export function SurveyEditor({
   meta,
   initialQuestions,
+  walkbooks = [],
+  attachedWalkbookIds = [],
 }: {
   meta: SurveyMetaDraft;
   initialQuestions: SurveyQuestionDraft[];
+  walkbooks?: EditorWalkbook[];
+  attachedWalkbookIds?: string[];
 }) {
   const router = useRouter();
   const [name, setName] = useState(meta.name);
@@ -60,6 +72,14 @@ export function SurveyEditor({
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [diff, setDiff] = useState<{ breaking: string[]; nonBreaking: string[] } | null>(null);
+
+  // Walkbook attachment picker state — independent of question save/publish.
+  const initialAttached = useMemo(() => new Set(attachedWalkbookIds), [attachedWalkbookIds]);
+  const [walkbookSelection, setWalkbookSelection] = useState<Set<string>>(initialAttached);
+  const [walkbookSearch, setWalkbookSearch] = useState("");
+  const [walkbookSaving, setWalkbookSaving] = useState(false);
+  const [walkbookNotice, setWalkbookNotice] = useState<string | null>(null);
+  const [walkbookError, setWalkbookError] = useState<string | null>(null);
 
   const selected = selectedIdx !== null ? questions[selectedIdx] : null;
   const isPublished = meta.status === "active";
@@ -218,6 +238,58 @@ export function SurveyEditor({
   }
 
   const slug = useMemo(() => meta.slug || toSlug(name), [meta.slug, name]);
+
+  const filteredWalkbooks = useMemo(() => {
+    const q = walkbookSearch.trim().toLowerCase();
+    if (!q) return walkbooks;
+    return walkbooks.filter((w) => w.name.toLowerCase().includes(q));
+  }, [walkbooks, walkbookSearch]);
+
+  const walkbookDirty = useMemo(() => {
+    if (walkbookSelection.size !== initialAttached.size) return true;
+    for (const id of walkbookSelection) {
+      if (!initialAttached.has(id)) return true;
+    }
+    return false;
+  }, [walkbookSelection, initialAttached]);
+
+  function toggleWalkbook(id: string) {
+    setWalkbookSelection((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function saveWalkbookAttachments() {
+    if (!meta.id) return;
+    setWalkbookSaving(true);
+    setWalkbookError(null);
+    setWalkbookNotice(null);
+    try {
+      const res = await fetch(`/api/admin/surveys/${meta.id}/walkbooks`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: Array.from(walkbookSelection) }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? `${res.status}`);
+      const parts: string[] = [];
+      if (body.added) parts.push(`+${body.added}`);
+      if (body.removed) parts.push(`-${body.removed}`);
+      setWalkbookNotice(
+        `Attached to ${body.attached} walkbook${body.attached === 1 ? "" : "s"}${
+          parts.length > 0 ? ` (${parts.join(" / ")})` : ""
+        }.`,
+      );
+      router.refresh();
+    } catch (e) {
+      setWalkbookError((e as Error).message);
+    } finally {
+      setWalkbookSaving(false);
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -410,6 +482,96 @@ export function SurveyEditor({
           </div>
         </section>
       </div>
+
+      {/* Walkbook attachment picker — saves independently of the question
+          set so it doesn't trigger the version-bump prompt. */}
+      <section className="rounded-lg border border-border bg-white p-4">
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-navy-900">Walkbooks using this survey</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Tick the walkbooks volunteers should run this survey on. Already-attached
+              walkbooks are pre-checked. Saves independently of the question set.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="search"
+              value={walkbookSearch}
+              onChange={(e) => setWalkbookSearch(e.target.value)}
+              placeholder="Search walkbooks"
+              className="rounded border border-navy-200 px-2 py-1 text-xs"
+            />
+            <Button
+              type="button"
+              variant="accent"
+              onClick={saveWalkbookAttachments}
+              disabled={!walkbookDirty || walkbookSaving || !meta.id}
+            >
+              {walkbookSaving
+                ? "Saving…"
+                : walkbookDirty
+                  ? `Save (${walkbookSelection.size} attached)`
+                  : `Saved (${walkbookSelection.size} attached)`}
+            </Button>
+          </div>
+        </div>
+
+        {walkbookNotice ? (
+          <p className="mb-2 rounded bg-emerald-100 px-3 py-2 text-xs text-emerald-800">
+            {walkbookNotice}
+          </p>
+        ) : null}
+        {walkbookError ? (
+          <p className="mb-2 rounded bg-crimson/10 px-3 py-2 text-xs text-crimson">
+            {walkbookError}
+          </p>
+        ) : null}
+
+        {walkbooks.length === 0 ? (
+          <p className="rounded-md border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+            No walkbooks in this district yet. Generate walkbooks at{" "}
+            <Link href="/admin/walkbooks" className="underline">
+              /admin/walkbooks
+            </Link>{" "}
+            first.
+          </p>
+        ) : filteredWalkbooks.length === 0 ? (
+          <p className="rounded-md border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+            No walkbooks match &ldquo;{walkbookSearch}&rdquo;.
+          </p>
+        ) : (
+          <ul className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
+            {filteredWalkbooks.map((w) => {
+              const checked = walkbookSelection.has(w.id);
+              return (
+                <li key={w.id}>
+                  <label
+                    className={`flex w-full cursor-pointer items-center gap-2 rounded-md border p-2 text-xs transition ${
+                      checked
+                        ? "border-navy-900 bg-navy-50"
+                        : "border-border bg-white hover:border-navy-300"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleWalkbook(w.id)}
+                      className="flex-none"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium text-navy-900">{w.name}</span>
+                      <span className="block text-[10px] text-muted-foreground">
+                        {w.household_count} doors · {w.status}
+                      </span>
+                    </span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }

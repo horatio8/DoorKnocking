@@ -78,5 +78,46 @@ export default async function SurveyEditPage({ params }: { params: { id: string 
     body_html: q.body_html,
   }));
 
-  return <SurveyEditor meta={meta} initialQuestions={qs} />;
+  // Walkbooks in the survey's district + which ones already have this
+  // survey attached. Powers the Step-3-style picker at the bottom of the
+  // editor so admins can attach this survey to multiple walkbooks in one
+  // go without bouncing to /admin/walkbooks/assign.
+  const [{ data: wbRows }, { data: wsRows }] = await Promise.all([
+    supabase
+      .from("walkbooks")
+      .select("id, name, household_count, status, kind")
+      .eq("district_id", s.district_id)
+      .neq("status", "complete")
+      .eq("ephemeral", false)
+      .order("name"),
+    supabase
+      .from("walkbook_surveys")
+      .select("walkbook_id")
+      .eq("survey_id", params.id),
+  ]);
+  const walkbooks = ((wbRows ?? []) as Array<{
+    id: string;
+    name: string;
+    household_count: number;
+    status: string;
+    kind: string;
+  }>).map((w) => ({
+    id: w.id,
+    name: w.name,
+    household_count: w.household_count,
+    status: w.status,
+    kind: w.kind,
+  }));
+  const attachedWalkbookIds = ((wsRows ?? []) as Array<{ walkbook_id: string }>).map(
+    (r) => r.walkbook_id,
+  );
+
+  return (
+    <SurveyEditor
+      meta={meta}
+      initialQuestions={qs}
+      walkbooks={walkbooks}
+      attachedWalkbookIds={attachedWalkbookIds}
+    />
+  );
 }
