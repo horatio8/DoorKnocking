@@ -40,12 +40,17 @@ export function AirtableFileUploadWizard({ districtId, districtName, hasCanonica
   const [step, setStep] = useState<Step>("upload");
   const [uploadState, setUploadState] = useState<UploadResponse | null>(null);
   const [mapping, setMapping] = useState<FieldMapping>({});
-  // Airtable doesn't expose a workspaces-list endpoint, so we load the
-  // saved workspace id (if any) on mount and let the admin paste in a
-  // new one. Workspace ids look like wspXXXXXXXXXXX and live in the
-  // URL of any Airtable workspace page.
+  // Two paths for installing the canonical schema:
+  //   existing — pick an Airtable base the admin already has; we drop
+  //              the four tables in. No workspaceId needed.
+  //   create  — paste a workspaceId and we create a fresh base.
+  const [provisionMode, setProvisionMode] = useState<"existing" | "create">("existing");
   const [workspaceId, setWorkspaceId] = useState<string>("");
-  const [workspaceLoaded, setWorkspaceLoaded] = useState(false);
+  const [existingBaseId, setExistingBaseId] = useState<string>("");
+  const [bases, setBases] = useState<
+    Array<{ id: string; name: string; permissionLevel?: string }>
+  >([]);
+  const [optionsLoaded, setOptionsLoaded] = useState(false);
   const [provisionResult, setProvisionResult] = useState<{ base_id: string; reused: boolean } | null>(
     hasCanonicalBase ? { base_id: "(already provisioned)", reused: true } : null,
   );
@@ -93,8 +98,8 @@ export function AirtableFileUploadWizard({ districtId, districtName, hasCanonica
     }
   }
 
-  // Pull the saved workspace id on mount so the admin doesn't have to
-  // re-find it on every provision attempt.
+  // Pull saved workspace id + the admin's existing bases on mount so
+  // the picker populates without a manual "Load" click.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -103,11 +108,14 @@ export function AirtableFileUploadWizard({ districtId, districtName, hasCanonica
           `/api/admin/airtable/provision?district_id=${encodeURIComponent(districtId)}`,
         );
         const body = await res.json();
-        if (!cancelled && res.ok && body.suggested) setWorkspaceId(body.suggested);
+        if (cancelled || !res.ok) return;
+        if (body.suggested) setWorkspaceId(body.suggested);
+        if (Array.isArray(body.bases)) setBases(body.bases);
       } catch {
-        // Non-fatal — the admin can still paste their workspace id.
+        // Non-fatal — the admin can still paste their workspace id
+        // or retry. UI will render the create-new fallback.
       } finally {
-        if (!cancelled) setWorkspaceLoaded(true);
+        if (!cancelled) setOptionsLoaded(true);
       }
     })();
     return () => {
@@ -116,17 +124,21 @@ export function AirtableFileUploadWizard({ districtId, districtName, hasCanonica
   }, [districtId]);
 
   async function provisionBase() {
-    if (!workspaceId) {
-      setError("Pick a workspace first");
-      return;
-    }
-    setBusy("Creating base + four tables…");
+    setBusy(
+      provisionMode === "existing"
+        ? "Adding four tables to your base…"
+        : "Creating base + four tables…",
+    );
     setError(null);
     try {
+      const payload =
+        provisionMode === "existing"
+          ? { district_id: districtId, base_id: existingBaseId }
+          : { district_id: districtId, workspace_id: workspaceId };
       const res = await fetch("/api/admin/airtable/provision", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ district_id: districtId, workspace_id: workspaceId }),
+        body: JSON.stringify(payload),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? `${res.status}`);
@@ -231,13 +243,18 @@ export function AirtableFileUploadWizard({ districtId, districtName, hasCanonica
 
       {step === "provision" ? (
         <ProvisionStep
+          mode={provisionMode}
+          onModeChange={setProvisionMode}
           workspaceId={workspaceId}
-          onPick={setWorkspaceId}
+          onWorkspaceChange={setWorkspaceId}
+          bases={bases}
+          existingBaseId={existingBaseId}
+          onBaseChange={setExistingBaseId}
           onProvision={provisionBase}
           result={provisionResult}
           busy={busy}
           districtName={districtName}
-          loaded={workspaceLoaded}
+          loaded={optionsLoaded}
         />
       ) : null}
 
@@ -425,74 +442,151 @@ function ConfidenceChip({ level }: { level: "high" | "medium" | "low" }) {
 }
 
 function ProvisionStep({
+  mode,
+  onModeChange,
   workspaceId,
-  onPick,
+  onWorkspaceChange,
+  bases,
+  existingBaseId,
+  onBaseChange,
   onProvision,
   result,
   busy,
   districtName,
   loaded,
 }: {
+  mode: "existing" | "create";
+  onModeChange(m: "existing" | "create"): void;
   workspaceId: string;
-  onPick(id: string): void;
+  onWorkspaceChange(id: string): void;
+  bases: Array<{ id: string; name: string; permissionLevel?: string }>;
+  existingBaseId: string;
+  onBaseChange(id: string): void;
   onProvision(): void;
   result: { base_id: string; reused: boolean } | null;
   busy: string | null;
   districtName: string;
   loaded: boolean;
 }) {
+  const editableBases = bases.filter(
+    (b) => !b.permissionLevel || b.permissionLevel === "create" || b.permissionLevel === "edit",
+  );
+  const canCreate =
+    mode === "existing"
+      ? Boolean(existingBaseId)
+      : /^wsp[A-Za-z0-9]+$/.test(workspaceId);
+
   return (
     <div className="space-y-4 rounded-lg border border-border bg-white p-4">
       <div>
-        <h2 className="font-medium text-navy-900">Create the Airtable base</h2>
+        <h2 className="font-medium text-navy-900">Install the canonical schema</h2>
         <p className="text-xs text-muted-foreground">
-          We&apos;ll create a new base named{" "}
-          <span className="font-mono">{districtName} — Voters</span> with four
-          tables: Voters, Households, Knocks, Conversations.
+          We&apos;ll add four tables — Voters, Households, Knocks, Conversations — plus the
+          linked-record fields between them.
         </p>
       </div>
 
       {result ? (
         <div className="rounded border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
           Base ready: <span className="font-mono">{result.base_id}</span>
-          {result.reused ? " (reused existing)" : " (freshly created)"}
+          {result.reused ? " (reused existing)" : " (installed just now)"}
         </div>
       ) : null}
 
       {!result ? (
-        <div className="space-y-3">
-          <label className="flex flex-col gap-1 text-xs font-medium text-navy-700">
-            Workspace ID
-            <input
-              type="text"
-              className="w-full rounded-md border border-navy-200 bg-white px-2 py-2 font-mono text-sm text-navy-900 focus:border-navy-400 focus:outline-none"
-              value={workspaceId}
-              onChange={(e) => onPick(e.target.value.trim())}
-              placeholder="wspXXXXXXXXXXX"
-              spellCheck={false}
-              autoCapitalize="off"
-              autoCorrect="off"
-            />
-            <span className="text-[11px] font-normal text-muted-foreground">
-              Airtable doesn&rsquo;t expose a workspace list via their API. Open Airtable in a new
-              tab — your workspace id is the{" "}
-              <span className="font-mono">wsp…</span> segment in the URL
-              (<span className="font-mono">airtable.com/wspXXXXX/home</span>). Paste it here.
-              {loaded && workspaceId ? " Pre-filled from your saved credentials." : ""}
-            </span>
-          </label>
+        <div className="space-y-4">
+          <div className="inline-flex rounded-md border border-border bg-navy-50/40 p-0.5">
+            <ModeButton active={mode === "existing"} onClick={() => onModeChange("existing")}>
+              Use an existing base
+            </ModeButton>
+            <ModeButton active={mode === "create"} onClick={() => onModeChange("create")}>
+              Create a new base
+            </ModeButton>
+          </div>
+
+          {mode === "existing" ? (
+            <label className="flex flex-col gap-1 text-xs font-medium text-navy-700">
+              Pick a base
+              <select
+                className="w-full rounded-md border border-navy-200 bg-white px-2 py-2 text-sm text-navy-900 focus:border-navy-400 focus:outline-none"
+                value={existingBaseId}
+                onChange={(e) => onBaseChange(e.target.value)}
+                disabled={!loaded || editableBases.length === 0}
+              >
+                <option value="">
+                  {!loaded
+                    ? "Loading your bases…"
+                    : editableBases.length === 0
+                      ? "No editable bases visible to this token"
+                      : "Select a base…"}
+                </option>
+                {editableBases.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name} {b.permissionLevel ? `(${b.permissionLevel})` : ""}
+                  </option>
+                ))}
+              </select>
+              <span className="text-[11px] font-normal text-muted-foreground">
+                We&rsquo;ll drop the four tables into this base. If the base already has tables
+                named <span className="font-mono">Voters</span>, <span className="font-mono">Households</span>,
+                <span className="font-mono"> Knocks</span> or <span className="font-mono">Conversations</span>,
+                the install aborts so we don&rsquo;t clobber your data.
+              </span>
+            </label>
+          ) : (
+            <label className="flex flex-col gap-1 text-xs font-medium text-navy-700">
+              Workspace ID
+              <input
+                type="text"
+                className="w-full rounded-md border border-navy-200 bg-white px-2 py-2 font-mono text-sm text-navy-900 focus:border-navy-400 focus:outline-none"
+                value={workspaceId}
+                onChange={(e) => onWorkspaceChange(e.target.value.trim())}
+                placeholder="wspXXXXXXXXXXX"
+                spellCheck={false}
+                autoCapitalize="off"
+                autoCorrect="off"
+              />
+              <span className="text-[11px] font-normal text-muted-foreground">
+                Airtable doesn&rsquo;t expose a workspace list via their API. Open Airtable in a
+                new tab — your workspace id is the <span className="font-mono">wsp…</span>{" "}
+                segment in the URL (<span className="font-mono">airtable.com/wspXXXXX/home</span>).
+                We&rsquo;ll create a base named{" "}
+                <span className="font-mono">{districtName} — Voters</span> in it.
+                {loaded && workspaceId ? " Pre-filled from your saved credentials." : ""}
+              </span>
+            </label>
+          )}
+
           <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="accent"
-              onClick={onProvision}
-              disabled={!/^wsp[A-Za-z0-9]+$/.test(workspaceId) || !!busy}
-            >
-              {busy ?? "Create base"}
+            <Button type="button" variant="accent" onClick={onProvision} disabled={!canCreate || !!busy}>
+              {busy ??
+                (mode === "existing" ? "Install tables in this base" : "Create base")}
             </Button>
           </div>
         </div>
       ) : null}
     </div>
+  );
+}
+
+function ModeButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded px-3 py-1 text-xs font-medium transition ${
+        active ? "bg-white text-navy-900 shadow-sm" : "text-navy-600 hover:text-navy-900"
+      }`}
+    >
+      {children}
+    </button>
   );
 }

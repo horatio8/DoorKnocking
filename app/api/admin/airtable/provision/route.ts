@@ -2,22 +2,33 @@ import { NextResponse } from "next/server";
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { resolveAirtableTokenForDistrict } from "@/lib/airtable/credentials";
-import { provisionCanonicalBase } from "@/lib/airtable/provisioning";
+import {
+  addCanonicalTablesToBase,
+  provisionCanonicalBase,
+} from "@/lib/airtable/provisioning";
+import { listBases } from "@/lib/airtable/metadata";
 
 // POST /api/admin/airtable/provision
-//   body: { district_id, workspace_id?, name? }
+//   body: { district_id, base_id?, workspace_id?, name? }
 //
-// Creates a blank Airtable base inside the client's workspace with the
-// canonical four-table schema (Voters, Households, Knocks,
-// Conversations). Stores the resulting ids on the district row and
-// flips airtable_is_canonical=true. Idempotent: if the district already
-// points at a canonical base, this returns the stored ids without
-// re-provisioning.
+// Installs the canonical four-table schema (Voters, Households, Knocks,
+// Conversations) into the client's Airtable. Two modes:
+//
+//   base_id     → add tables to an existing base the admin picked.
+//                 Skips createBase entirely, so no workspace_id needed.
+//                 Fails cleanly if that base already has tables with
+//                 canonical names (no silent clobber).
+//   workspace_id → creates a fresh base inside that workspace, then
+//                 populates the four tables.
+//
+// Idempotent: if the district already points at a canonical base, the
+// stored ids are returned unchanged.
 //
 // GET /api/admin/airtable/provision?district_id=...
-//   Returns the workspace_id (if any) already saved on the client's
-//   credentials. Airtable doesn't expose a workspace list endpoint, so
-//   the UI surfaces a text input prompting the admin to paste theirs.
+//   Returns:
+//     suggested: saved workspace_id (if any)
+//     bases: [{ id, name, permissionLevel }] — every base the admin's
+//            token can see, for the "pick existing" dropdown.
 
 export const maxDuration = 180;
 
@@ -32,7 +43,18 @@ export async function GET(req: Request) {
   if (!creds?.token) {
     return NextResponse.json({ error: "no airtable token" }, { status: 412 });
   }
-  return NextResponse.json({ suggested: creds.workspaceId ?? null });
+  let bases: Array<{ id: string; name: string; permissionLevel?: string }> = [];
+  try {
+    bases = await listBases(creds.token);
+  } catch (err) {
+    // Non-fatal — the create-new-base path still works via paste-a-
+    // workspace-id. Log and continue.
+    console.warn("[provision] listBases failed:", (err as Error).message);
+  }
+  return NextResponse.json({
+    suggested: creds.workspaceId ?? null,
+    bases,
+  });
 }
 
 export async function POST(req: Request) {
@@ -43,6 +65,7 @@ export async function POST(req: Request) {
 
   const body = (await req.json().catch(() => ({}))) as {
     district_id?: string;
+    base_id?: string;
     workspace_id?: string;
     name?: string;
   };
@@ -98,18 +121,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "no airtable token — connect Airtable first" }, { status: 412 });
   }
 
-  const workspaceId = body.workspace_id ?? creds.workspaceId;
-  if (!workspaceId) {
-    return NextResponse.json(
-      { error: "workspace_id required — no workspace on file for this client" },
-      { status: 400 },
-    );
-  }
-
-  const name = body.name ?? `${district.name} — Voters`;
-
   try {
-    const result = await provisionCanonicalBase(creds.token, { workspaceId, name });
+    let result;
+    if (body.base_id) {
+      // Add to an existing base. No workspace_id needed.
+      result = await addCanonicalTablesToBase(creds.token, body.base_id);
+    } else {
+      const workspaceId = body.workspace_id ?? creds.workspaceId;
+      if (!workspaceId) {
+        return NextResponse.json(
+          { error: "workspace_id or base_id required" },
+          { status: 400 },
+        );
+      }
+      const name = body.name ?? `${district.name} — Voters`;
+      result = await provisionCanonicalBase(creds.token, { workspaceId, name });
+    }
+
     const { error: updErr } = await supabase
       .from("districts")
       .update({

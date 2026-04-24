@@ -15,6 +15,7 @@ import {
   type CanonicalTable,
   type CanonicalTableKey,
 } from "./schema";
+import { listTables } from "./metadata";
 
 const META_BASE_URL = "https://api.airtable.com/v0/meta";
 const FIELD_CREATE_DELAY_MS = 250;
@@ -196,3 +197,60 @@ export async function provisionCanonicalBase(
 // The admin has to provide the workspaceId by hand — they can grab it
 // from any Airtable workspace URL: airtable.com/wspXXXXXXXXXXX/...
 // We persist it on client_credentials so they only need to do it once.
+
+// ============================================================
+// Alternative path: drop the canonical tables into an existing base.
+// Skips POST /meta/bases entirely so we don't need a workspaceId — we
+// just add tables to a base the admin already has. Fails cleanly if any
+// of the canonical table names already exist so we don't silently
+// clobber the admin's data.
+// ============================================================
+export async function addCanonicalTablesToBase(
+  token: string,
+  baseId: string,
+): Promise<ProvisionedBase> {
+  const existing = await listTables(token, baseId);
+  const nameSet = new Set(existing.map((t) => t.name.toLowerCase()));
+  const collisions = CANONICAL_TABLES.filter((t) => nameSet.has(t.name.toLowerCase()));
+  if (collisions.length > 0) {
+    throw new Error(
+      `This base already has table${collisions.length === 1 ? "" : "s"} named ${collisions
+        .map((c) => `"${c.name}"`)
+        .join(", ")}. Pick a different base, or rename the existing table(s) in Airtable first.`,
+    );
+  }
+
+  const tableIdsByKey: Partial<Record<CanonicalTableKey, string>> = {};
+
+  // Pass 1: create every table with its primitive fields. Sequential
+  // to stay polite with the metadata-API rate limit.
+  for (const t of CANONICAL_TABLES) {
+    const prim = splitFields(t).primitive;
+    const created = await createTable(token, baseId, {
+      name: t.name,
+      fields: prim.map((f) => toAirtableField(f, tableIdsByKey)),
+    });
+    tableIdsByKey[t.key] = created.id;
+    await sleep(FIELD_CREATE_DELAY_MS);
+  }
+
+  // Pass 2: linked-record fields. Same two-pass shape as
+  // provisionCanonicalBase — we can only reference tables that exist.
+  for (const t of CANONICAL_TABLES) {
+    const linked = splitFields(t).linked;
+    for (const f of linked) {
+      await createField(
+        token,
+        baseId,
+        tableIdsByKey[t.key]!,
+        toAirtableField(f, tableIdsByKey),
+      );
+      await sleep(FIELD_CREATE_DELAY_MS);
+    }
+  }
+
+  return {
+    baseId,
+    tableIdsByKey: tableIdsByKey as Record<CanonicalTableKey, string>,
+  };
+}
