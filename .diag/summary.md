@@ -1,4 +1,4 @@
-# diag @ 2026-04-25T03:38:14.512Z
+# diag @ 2026-04-25T04:07:14.914Z
 
 ## env
 - has_NEXT_PUBLIC_SUPABASE_URL: true
@@ -33,24 +33,24 @@
 - client_credentials: 2
 - districts: 2
 - users: 7
-- voters: 3580
-- households: 3338
-- walkbooks: 150
-- walkbook_households: 1460
-- walkbook_assignments: 77
-- walk_time_calibration: 2
-- walkbook_generation_runs: 5
-- knock_events: 41
-- surveys: 3
-- survey_questions: 14
+- voters: 3120
+- households: 2878
+- walkbooks: 113
+- walkbook_households: 1000
+- walkbook_assignments: 6
+- walk_time_calibration: 1
+- walkbook_generation_runs: 1
+- knock_events: 4
+- surveys: 1
+- survey_questions: 2
 - survey_responses: 0
-- tags: 2
+- tags: 0
 - voter_tags: 0
 
 
 ## vercel
 - state: READY
-- sha: 86ac8a8
+- sha: f4e332a
 - target: production
-- created: 2026-04-25T03:37:18Z
-- url: door-knocking-p52h0r3ch-tellerconsulting.vercel.app
+- created: 2026-04-25T03:38:21Z
+- url: door-knocking-hf8zkw7w9-tellerconsulting.vercel.app
