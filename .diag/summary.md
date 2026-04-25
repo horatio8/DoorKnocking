@@ -1,4 +1,4 @@
-# diag @ 2026-04-25T05:46:56.772Z
+# diag @ 2026-04-25T05:56:59.064Z
 
 ## env
 - has_NEXT_PUBLIC_SUPABASE_URL: true
@@ -30,7 +30,7 @@
 
 ## tables
 - clients: 3
-- client_credentials: 1
+- client_credentials: 2
 - districts: 3
 - users: 8
 - voters: 3120
@@ -50,7 +50,7 @@
 
 ## vercel
 - state: READY
-- sha: d6833b5
+- sha: 724ab91
 - target: production
-- created: 2026-04-25T05:46:00Z
-- url: door-knocking-lfnt56y0m-tellerconsulting.vercel.app
+- created: 2026-04-25T05:56:02Z
+- url: door-knocking-mqegptmob-tellerconsulting.vercel.app
