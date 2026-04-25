@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/import-worker",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/mirror-airtable",
+      "schedule": "*/2 * * * *"
     }
   ],
   "git": {

@@ -123,14 +123,34 @@ export async function GET() {
 
       // Airtable mirror — conversation rows only; silent skip if the
       // client hasn't wired Airtable or the Conversations table.
+      // Generate a *long-lived* signed URL specifically for the
+      // Airtable Conversations row. The earlier 10-minute URL above
+      // is only good for the Whisper fetch we just did; embedding it
+      // in Airtable would 403 by the time an admin clicked it. Max
+      // signed-URL lifetime in Supabase Storage is 1 year (~31.5M
+      // seconds) — the audio file lives in a private bucket so this
+      // is the longest reach we can give Airtable readers without
+      // making the bucket public.
       if (note.note_kind === "conversation" && note.voter_id) {
-        const signedAudio = signed.signedUrl;
+        const ONE_YEAR_SECONDS = 60 * 60 * 24 * 365;
+        let airtableAudioUrl: string | null = null;
+        const longLived = await supabase.storage
+          .from(BUCKET)
+          .createSignedUrl(note.audio_storage_path, ONE_YEAR_SECONDS);
+        if (longLived.error || !longLived.data) {
+          console.warn("[transcribe] long-lived audio URL failed, falling back to null", {
+            voiceNoteId: note.id,
+            message: longLived.error?.message,
+          });
+        } else {
+          airtableAudioUrl = longLived.data.signedUrl;
+        }
         try {
           const airtableId = await mirrorConversationToAirtable({
             supabase,
             voiceNoteId: note.id,
             voterId: note.voter_id,
-            audioUrl: signedAudio,
+            audioUrl: airtableAudioUrl,
             transcriptText: transcript,
             speakerSegments,
             summary,
