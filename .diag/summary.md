@@ -1,4 +1,4 @@
-# diag @ 2026-04-25T06:09:28.626Z
+# diag @ 2026-04-25T06:34:21.519Z
 
 ## env
 - has_NEXT_PUBLIC_SUPABASE_URL: true
@@ -24,7 +24,7 @@
 - ✅ auth.settings — status=200
 - ✅ anon.districts_select — 
 - ✅ service_role.list_users — count=1
-- ✅ service_role.users_count — count=8
+- ✅ service_role.users_count — count=10
 - ✅ users.orphan_check — all public.users rows have a matching auth.users entry
 - ❌ migrations.repo_vs_db — Invalid schema: supabase_migrations
 
@@ -32,25 +32,25 @@
 - clients: 2
 - client_credentials: 2
 - districts: 2
-- users: 8
+- users: 10
 - voters: 4269
 - households: 9501
 - walkbooks: 221
 - walkbook_households: 2000
-- walkbook_assignments: 6
+- walkbook_assignments: 115
 - walk_time_calibration: 2
 - walkbook_generation_runs: 2
-- knock_events: 61
+- knock_events: 62
 - surveys: 3
 - survey_questions: 11
-- survey_responses: 0
+- survey_responses: 5
 - tags: 0
 - voter_tags: 0
 
 
 ## vercel
 - state: READY
-- sha: 0d17a13
+- sha: 3fe3d24
 - target: production
-- created: 2026-04-25T05:57:05Z
-- url: door-knocking-jex6kw3jb-tellerconsulting.vercel.app
+- created: 2026-04-25T06:33:23Z
+- url: door-knocking-f9jdmme7r-tellerconsulting.vercel.app
