@@ -126,7 +126,26 @@ export function SurveyRunner({ knockEventId, voter, survey, initialAnswers }: Pr
         },
       });
     }
-    router.push("/app/map");
+    // After a complete survey, ask the server for the next stop in
+    // the active walkbook so the map can fly to it and highlight the
+    // pin. Best-effort — partial survey or no walkbook just lands on
+    // the unfocused map view, same as before.
+    let nextHouseholdId: string | null = null;
+    if (complete) {
+      try {
+        const res = await fetch(
+          `/api/knocker/next-stop?knock_event_id=${encodeURIComponent(knockEventId)}`,
+          { cache: "no-store" },
+        );
+        if (res.ok) {
+          const body = (await res.json()) as { next_household_id: string | null };
+          nextHouseholdId = body.next_household_id ?? null;
+        }
+      } catch {
+        // Non-fatal — user can pick the next house manually.
+      }
+    }
+    router.push(nextHouseholdId ? `/app/map?focus=${nextHouseholdId}` : "/app/map");
     router.refresh();
   }
 

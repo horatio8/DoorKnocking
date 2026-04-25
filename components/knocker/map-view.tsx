@@ -24,7 +24,12 @@ mapboxgl.accessToken = publicEnv.mapboxToken;
 interface WalkbookViz {
   id: string;
   name: string;
-  stops: Array<{ lat: number; lng: number; order_index: number }>;
+  stops: Array<{
+    lat: number;
+    lng: number;
+    order_index: number;
+    household_id: string;
+  }>;
   anchor: { lat: number; lng: number } | null;
   household_count: number;
   estimated_duration_minutes: number | null;
@@ -72,6 +77,10 @@ export function MapView({
   const router = useRouter();
   const searchParams = useSearchParams();
   const incomingWalkbookId = searchParams?.get("walkbook") ?? null;
+  // ?focus=<household_id> — set by the survey runner when a stop is
+  // completed. We fly to that household, highlight its pin, and pop a
+  // small "next house" callout so the volunteer knows where to tap.
+  const focusHouseholdId = searchParams?.get("focus") ?? null;
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const [statusFilter, setStatusFilter] = useState<Set<HouseholdStatus>>(new Set(STATUS_OPTIONS));
@@ -388,6 +397,28 @@ export function MapView({
     map.fitBounds(bounds, { padding: 64, maxZoom: 17, duration: 450 });
   }, [scopedWalkbookId, walkbookViz]);
 
+  // ?focus=<household_id>: fly to a single household. Set when the
+  // survey runner finishes a stop and wants the map to highlight the
+  // next house in the walkbook order. We only fly — the volunteer
+  // taps the pin themselves to start the next survey.
+  const focusHousehold = useMemo(() => {
+    if (!focusHouseholdId) return null;
+    return households.get(focusHouseholdId) ?? null;
+  }, [focusHouseholdId, households]);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !focusHousehold || focusHousehold.lat == null || focusHousehold.lng == null) return;
+    const apply = () => {
+      map.flyTo({
+        center: [Number(focusHousehold.lng), Number(focusHousehold.lat)],
+        zoom: 17,
+        duration: 600,
+      });
+    };
+    if (map.isStyleLoaded()) apply();
+    else map.once("load", apply);
+  }, [focusHousehold]);
+
   // Sheet opens ONLY when the user explicitly taps a walkbook pin
   // (selectedWalkbookId). A URL-seeded focus does not open the sheet.
   const selectedWalkbook = useMemo(
@@ -404,8 +435,46 @@ export function MapView({
     });
   }
 
+  // "Nearest unknocked house" = first stop of the closest walkbook
+  // that still has unknocked doors. Routes the volunteer to the
+  // beginning of a walkbook (not the middle) so the route order
+  // stays meaningful. Falls back to nearest unknocked household
+  // overall when no walkbook in scope has any not_knocked stops —
+  // edge case but avoids a dead-end button.
   function findNext() {
     if (!position) return;
+
+    // First-stop-of-nearest-walkbook path. Only consider walkbooks
+    // visible under current filters / "my walkbooks only" toggle.
+    const visibleWbIds = new Set(visibleWalkbooks.map((w) => w.id));
+    const candidateWalkbooks = walkbookViz.filter(
+      (w) => visibleWbIds.has(w.id) && w.stops.length > 0,
+    );
+    type Ranked = { wb: WalkbookViz; firstStopId: string; d: number };
+    const ranked: Ranked[] = [];
+    for (const w of candidateWalkbooks) {
+      const stops = [...w.stops].sort((a, b) => a.order_index - b.order_index);
+      const firstUnknocked = stops.find((s) => {
+        const h = households.get(s.household_id);
+        return h?.status === "not_knocked";
+      });
+      if (!firstUnknocked) continue;
+      ranked.push({
+        wb: w,
+        firstStopId: firstUnknocked.household_id,
+        d: haversineMeters(position, { lat: firstUnknocked.lat, lng: firstUnknocked.lng }),
+      });
+    }
+    ranked.sort((a, b) => a.d - b.d);
+    const closestFromWalkbook = ranked[0];
+    if (closestFromWalkbook) {
+      router.push(`/app/household/${closestFromWalkbook.firstStopId}`);
+      return;
+    }
+
+    // Fallback: no walkbook with unknocked doors visible. Use the
+    // old nearest-unknocked-household behaviour so the button still
+    // lands somewhere useful.
     const candidates = visibleHouseholds.filter((h) => h.status === "not_knocked");
     if (candidates.length === 0) return;
     const nearest = candidates
@@ -485,16 +554,45 @@ export function MapView({
 
       {!selectedWalkbook ? (
         <>
+          {/* Map legend — small overlay so volunteers know what the
+              two pin sizes mean. Walkbook discs are large + numbered;
+              household dots are small + colored by status. */}
+          <div className="pointer-events-none absolute right-2 top-24 z-10 hidden rounded-lg border border-navy-100 bg-white/90 p-2 text-[10px] text-navy-700 shadow-sm backdrop-blur sm:block">
+            <p className="text-[9px] font-semibold uppercase tracking-widest text-navy-500">
+              Legend
+            </p>
+            <div className="mt-1 flex items-center gap-1.5">
+              <span
+                className="inline-flex h-3 w-3 items-center justify-center rounded-full bg-navy text-[8px] font-semibold text-white"
+                aria-hidden
+              >
+                W
+              </span>
+              <span>Walkbook</span>
+            </div>
+            <div className="mt-0.5 flex items-center gap-1.5">
+              <span
+                className="inline-block h-1.5 w-1.5 rounded-full"
+                style={{ backgroundColor: HOUSEHOLD_PIN_COLORS.not_knocked }}
+                aria-hidden
+              />
+              <span>House</span>
+            </div>
+          </div>
           {/* Starting-house prompt. Always visible at the bottom so
               volunteers landing on the map after starting a session
               know the next action is "tap a pin". The Get-started FAB
-              becomes secondary (jump to nearest by GPS). */}
+              becomes secondary (jump to nearest by GPS). When ?focus
+              is set we swap to a "next house" callout so the survey
+              → next-stop handoff feels seamless. */}
           <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex flex-col items-center gap-2 px-3">
             <div className="pointer-events-auto w-full max-w-md rounded-xl border border-navy-100 bg-white/95 px-4 py-3 text-center shadow-lg backdrop-blur">
               <p className="text-sm font-semibold text-navy-900">
-                {scopedWalkbookId
-                  ? "Tap a house on the map to start knocking"
-                  : "Select your starting house"}
+                {focusHousehold
+                  ? `Next house: ${focusHousehold.address_line1}`
+                  : scopedWalkbookId
+                    ? "Tap a house on the map to start knocking"
+                    : "Select your starting house"}
               </p>
               <p className="mt-0.5 text-[11px] text-muted-foreground">
                 {visibleHouseholds.length} house{visibleHouseholds.length === 1 ? "" : "s"} visible
@@ -504,15 +602,24 @@ export function MapView({
                     }`
                   : ""}
               </p>
-              <button
-                onClick={findNext}
-                disabled={!position}
-                className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-crimson px-4 py-1.5 text-xs font-semibold text-white shadow hover:bg-crimson-700 disabled:cursor-not-allowed disabled:opacity-60"
-                title={position ? "Jump to the nearest unknocked house" : "Waiting for your location…"}
-              >
-                <Navigation className="h-3 w-3" />
-                {position ? "Nearest unknocked →" : "Waiting for GPS…"}
-              </button>
+              {focusHousehold ? (
+                <button
+                  onClick={() => router.push(`/app/household/${focusHousehold.id}`)}
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-navy-900 px-4 py-1.5 text-xs font-semibold text-white shadow hover:bg-navy-800"
+                >
+                  Open this house →
+                </button>
+              ) : (
+                <button
+                  onClick={findNext}
+                  disabled={!position}
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-crimson px-4 py-1.5 text-xs font-semibold text-white shadow hover:bg-crimson-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  title={position ? "Jump to the nearest unknocked house" : "Waiting for your location…"}
+                >
+                  <Navigation className="h-3 w-3" />
+                  {position ? "Nearest unknocked →" : "Waiting for GPS…"}
+                </button>
+              )}
             </div>
           </div>
         </>
@@ -522,7 +629,7 @@ export function MapView({
           mine={mineSet.has(selectedWalkbook.id)}
           selfAssigned={selfAssignedSet.has(selectedWalkbook.id)}
           onClose={() => setSelectedWalkbookId(null)}
-          onOpenPreview={() => router.push(`/app/walkbooks/${selectedWalkbook.id}/preview`)}
+          onStart={() => router.push(`/app/walkbooks/${selectedWalkbook.id}/preview`)}
           onAfterChange={() => router.refresh()}
         />
       )}
@@ -537,14 +644,14 @@ function WalkbookSheet({
   mine,
   selfAssigned,
   onClose,
-  onOpenPreview,
+  onStart,
   onAfterChange,
 }: {
   walkbook: WalkbookViz;
   mine: boolean;
   selfAssigned: boolean;
   onClose: () => void;
-  onOpenPreview: () => void;
+  onStart: () => void;
   onAfterChange: () => void;
 }) {
   const [busy, setBusy] = useState<"assign" | "remove" | null>(null);
@@ -643,10 +750,10 @@ function WalkbookSheet({
       <div className="mt-4 flex flex-col gap-2">
         <button
           type="button"
-          onClick={onOpenPreview}
+          onClick={onStart}
           className="h-12 rounded-xl bg-navy-900 text-sm font-semibold text-white active:scale-[0.98]"
         >
-          Open preview →
+          Start {formatWalkbookName(walkbook.name)} →
         </button>
         <div className="grid grid-cols-2 gap-2">
           {mine ? (

@@ -281,7 +281,7 @@ export function PreviewWalkbook({
           variant="accent"
           className="flex-1"
         >
-          {starting ? "Starting…" : "Start knock session"}
+          {starting ? "Starting…" : `Start ${formatWalkbookName(walkbook.name)}`}
         </Button>
       </div>
 

@@ -31,7 +31,13 @@ export default async function MapPage() {
   const walkbooks = (wbRes.data ?? []) as Walkbook[];
 
   // Build per-walkbook ordered stop lists for the route-line overlay.
-  const stopsByWalkbook = new Map<string, Array<{ lat: number; lng: number; order_index: number }>>();
+  // household_id rides along on each stop so the client can resolve a
+  // walkbook's first stop to a household → /app/household/<id> when
+  // the volunteer hits "Nearest unknocked".
+  const stopsByWalkbook = new Map<
+    string,
+    Array<{ lat: number; lng: number; order_index: number; household_id: string }>
+  >();
   if (walkbooks.length > 0) {
     const wbIds = walkbooks.map((w) => w.id);
     const { data: stopRows } = await supabase
@@ -53,7 +59,12 @@ export default async function MapPage() {
       const c = coordById.get(r.household_id);
       if (!c) continue;
       const list = stopsByWalkbook.get(r.walkbook_id) ?? [];
-      list.push({ lat: c.lat, lng: c.lng, order_index: r.order_index });
+      list.push({
+        lat: c.lat,
+        lng: c.lng,
+        order_index: r.order_index,
+        household_id: r.household_id,
+      });
       stopsByWalkbook.set(r.walkbook_id, list);
     }
   }
