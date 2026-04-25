@@ -1,10 +1,25 @@
+import { redirect } from "next/navigation";
+import { loadSession } from "@/lib/auth/session";
+import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { getActiveClient } from "@/lib/clients/active";
 import type { ReactNode } from "react";
 
-// Mobile-first frame for the volunteer flow. No auth wrapping — these screens
-// are the rebuilt prototype against the new design handoff. The volunteer
-// session lives in localStorage; see lib/volunteer/session.ts.
+// Auth guard for the volunteer flow.
+// Anyone unauthenticated is bounced to /login. The session is fetched once
+// here and exposed via the rendered children (each page re-loads cheaply
+// via React's request-scoped cache).
 
-export default function VolunteerLayout({ children }: { children: ReactNode }) {
+export default async function VolunteerLayout({ children }: { children: ReactNode }) {
+  const session = await loadSession();
+  if (!session) redirect("/login");
+  if (session.user.must_change_password) redirect("/set-password");
+
+  // Touch the active client so brand colors hydrate the same way as the
+  // marketing surface.
+  await getActiveClient();
+  // Service-role pre-warm so the first per-request query is quick.
+  getSupabaseServiceRoleClient();
+
   return (
     <div
       style={{

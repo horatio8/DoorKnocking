@@ -1,23 +1,58 @@
 "use client";
 
-// Screen 5 — Pre-knock briefing (Variant B, "Script-on-paper")
-
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { T, fontInter, fontSerif } from "@/lib/volunteer/tokens";
-import { loadSession, patchSession } from "@/lib/volunteer/session";
 
-export default function BriefingPage() {
+export function BriefingClient({
+  firstName,
+  campaignName,
+  walkbookId,
+}: {
+  firstName: string;
+  campaignName: string;
+  walkbookId: string;
+}) {
   const router = useRouter();
-  const [firstName, setFirstName] = useState("James");
+  const [submitting, setSubmitting] = useState(false);
+  const [warning, setWarning] = useState<string | null>(null);
 
-  useEffect(() => {
-    setFirstName(loadSession().firstName);
-  }, []);
+  const askForGps = (): Promise<GeolocationPosition | null> =>
+    new Promise((resolve) => {
+      if (typeof navigator === "undefined" || !navigator.geolocation) {
+        resolve(null);
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve(pos),
+        () => resolve(null),
+        { enableHighAccuracy: true, timeout: 6000 },
+      );
+    });
 
-  const onStart = () => {
-    patchSession({ startedAt: new Date().toISOString() });
-    router.push("/v/map");
+  const onStart = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    setWarning(null);
+    const pos = await askForGps();
+    if (!pos) {
+      setWarning(
+        "We couldn't read your location. The map will still work but the next-door arrow won't appear.",
+      );
+    } else {
+      // Best-effort first ping. We swallow errors here because the map screen
+      // re-pings on mount and tolerates the table being missing.
+      fetch("/api/knocker/gps-ping", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy_m: pos.coords.accuracy,
+        }),
+      }).catch(() => null);
+    }
+    router.push(`/v/map?walkbook=${walkbookId}`);
   };
 
   return (
@@ -76,7 +111,7 @@ export default function BriefingPage() {
             paddingLeft: 16,
           }}
         >
-          Hi, I&rsquo;m {firstName}. I&rsquo;m with the Sprouse campaign. Do you have a minute?
+          Hi, I&rsquo;m {firstName}. I&rsquo;m with the {campaignName} campaign. Do you have a minute?
         </div>
       </div>
 
@@ -94,8 +129,26 @@ export default function BriefingPage() {
 
       <div style={{ flex: 1, minHeight: 16 }} />
 
+      {warning ? (
+        <div
+          role="alert"
+          style={{
+            marginBottom: 8,
+            padding: "8px 12px",
+            borderRadius: 8,
+            background: T.amber100,
+            border: `1px solid #FCD34D`,
+            color: "#78350F",
+            fontSize: 13,
+          }}
+        >
+          {warning}
+        </div>
+      ) : null}
+
       <button
         onClick={onStart}
+        disabled={submitting}
         style={{
           width: "100%",
           height: 52,
@@ -107,14 +160,15 @@ export default function BriefingPage() {
           fontWeight: 600,
           fontSize: 16,
           letterSpacing: "-0.005em",
-          cursor: "pointer",
+          cursor: submitting ? "wait" : "pointer",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           gap: 8,
+          opacity: submitting ? 0.7 : 1,
         }}
       >
-        Got it &mdash; let&rsquo;s go
+        {submitting ? "Starting…" : "Got it — let’s go"}
         <svg
           width="16"
           height="16"
@@ -169,7 +223,13 @@ function BackBar({ onBack }: { onBack: () => void }) {
   );
 }
 
-function Overline({ children, color = T.slate500 }: { children: React.ReactNode; color?: string }) {
+function Overline({
+  children,
+  color = T.slate500,
+}: {
+  children: React.ReactNode;
+  color?: string;
+}) {
   return (
     <div
       style={{

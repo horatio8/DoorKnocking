@@ -1,245 +1,71 @@
-"use client";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { loadSession } from "@/lib/auth/session";
+import { loadVolunteerWalkbook } from "@/lib/volunteer/load-walkbook";
+import { T, fontInter } from "@/lib/volunteer/tokens";
+import { WalkbookClient } from "./walkbook-client";
+
+export const dynamic = "force-dynamic";
 
 // Screen 4 — Walkbook landing (Variant B, "Map dominant")
+// Loads the volunteer's assigned walkbook (or the next open one in their
+// district) so the screen reflects real-world routing, not stub data.
 
-import { useRouter } from "next/navigation";
-import { T, fontInter } from "@/lib/volunteer/tokens";
-import { MapPreview } from "@/components/volunteer/map-preview";
+export default async function WalkbookLandingPage() {
+  const session = await loadSession();
+  if (!session) redirect("/login");
 
-const WALKBOOK = {
-  name: "Riverland Woods",
-  doors: 18,
-  durationMins: 75,
-  driveMins: 14,
-  start: { line1: "1016 River Haven Cir", line2: "Charleston, SC" },
-};
+  const walkbook = await loadVolunteerWalkbook({
+    userId: session.user.id,
+    districtId: session.district?.id ?? session.user.default_district_id ?? null,
+  });
 
-export default function WalkbookLandingPage() {
-  const router = useRouter();
-  const goBack = () => router.push("/v/time");
-  const getDirections = () => {
-    const dest = encodeURIComponent(`${WALKBOOK.start.line1}, ${WALKBOOK.start.line2}`);
-    const isApple =
-      typeof navigator !== "undefined" && /iPhone|iPad|iPod|Mac/i.test(navigator.userAgent);
-    const url = isApple
-      ? `maps://?daddr=${dest}&dirflg=d`
-      : `https://www.google.com/maps/dir/?api=1&destination=${dest}`;
-    window.location.href = url;
-  };
-  const arrived = () => router.push("/v/walkbook/briefing");
-
-  return (
-    <div
-      style={{
-        flex: 1,
-        boxSizing: "border-box",
-        display: "flex",
-        flexDirection: "column",
-        background: T.white,
-        fontFamily: fontInter,
-        position: "relative",
-      }}
-    >
-      <div style={{ padding: "52px 16px 8px", display: "flex", alignItems: "center", gap: 12 }}>
-        <button
-          onClick={goBack}
-          aria-label="Back"
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 18,
-            border: `1px solid ${T.slate200}`,
-            background: T.white,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            cursor: "pointer",
-            flexShrink: 0,
-          }}
-        >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke={T.navy700}
-            strokeWidth="2.25"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M19 12H5M12 19l-7-7 7-7" />
-          </svg>
-        </button>
-        <div
-          style={{
-            fontSize: 11,
-            fontWeight: 600,
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            color: T.slate500,
-          }}
-        >
-          Your walkbook
-        </div>
-      </div>
-
-      <div style={{ flex: 1, padding: "0 16px", minHeight: 280 }}>
-        <MapPreview height="100%" />
-      </div>
-
-      <div style={{ padding: "20px 16px 24px" }}>
+  if (!walkbook) {
+    return (
+      <div
+        style={{
+          flex: 1,
+          padding: "64px 24px 24px",
+          background: T.white,
+          fontFamily: fontInter,
+          color: T.navy900,
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
         <h1
           style={{
             margin: 0,
             fontWeight: 700,
-            fontSize: 24,
-            lineHeight: "30px",
-            letterSpacing: "-0.01em",
-            color: T.navy900,
+            fontSize: 26,
+            letterSpacing: "-0.02em",
           }}
         >
-          {WALKBOOK.name}
+          No walkbook yet
         </h1>
-        <div
+        <p style={{ marginTop: 12, color: T.slate600 }}>
+          Your campaign admin hasn&rsquo;t assigned you a route yet. Once they do, it&rsquo;ll show
+          up here.
+        </p>
+        <div style={{ flex: 1 }} />
+        <Link
+          href="/v/time"
           style={{
-            marginTop: 4,
-            display: "flex",
-            flexWrap: "wrap",
-            gap: 12,
-            alignItems: "center",
-            fontSize: 13,
-            color: T.slate600,
-          }}
-        >
-          <span>
-            <b style={{ color: T.navy900, fontWeight: 600 }}>{WALKBOOK.doors}</b> doors
-          </span>
-          <span style={{ color: T.slate200 }}>·</span>
-          <span>~{WALKBOOK.durationMins} min</span>
-          <span style={{ color: T.slate200 }}>·</span>
-          <span>{WALKBOOK.driveMins} min drive</span>
-        </div>
-
-        <div
-          style={{
-            marginTop: 14,
-            padding: 12,
-            background: T.slate50,
-            border: `1px solid ${T.slate100}`,
+            display: "block",
+            textAlign: "center",
+            padding: "14px 0",
+            border: `1px solid ${T.slate200}`,
             borderRadius: 8,
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
+            color: T.navy900,
+            fontWeight: 600,
+            textDecoration: "none",
           }}
         >
-          <div
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: 16,
-              background: T.crimson50,
-              border: `1px solid ${T.crimson100}`,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexShrink: 0,
-            }}
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke={T.crimson600}
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z" />
-              <circle cx="12" cy="10" r="3" />
-            </svg>
-          </div>
-          <div style={{ minWidth: 0 }}>
-            <div
-              style={{
-                fontSize: 11,
-                fontWeight: 600,
-                letterSpacing: "0.06em",
-                textTransform: "uppercase",
-                color: T.slate500,
-              }}
-            >
-              Start here
-            </div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: T.navy900, marginTop: 2 }}>
-              {WALKBOOK.start.line1}
-            </div>
-          </div>
-        </div>
-
-        <div style={{ height: 16 }} />
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <Btn variant="secondary" onClick={getDirections}>
-            Get directions
-          </Btn>
-          <Btn variant="primary" onClick={arrived}>
-            I&rsquo;m already there
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.25"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M5 12h14M13 5l7 7-7 7" />
-            </svg>
-          </Btn>
-        </div>
+          Back
+        </Link>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
-function Btn({
-  variant,
-  children,
-  onClick,
-}: {
-  variant: "primary" | "secondary";
-  children: React.ReactNode;
-  onClick?: () => void;
-}) {
-  const s =
-    variant === "primary"
-      ? { bg: T.crimson600, fg: T.white, border: T.crimson600 }
-      : { bg: T.white, fg: T.navy900, border: T.slate200 };
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        width: "100%",
-        height: 52,
-        padding: "0 20px",
-        background: s.bg,
-        color: s.fg,
-        border: `1px solid ${s.border}`,
-        borderRadius: 8,
-        fontFamily: fontInter,
-        fontWeight: 600,
-        fontSize: 16,
-        letterSpacing: "-0.005em",
-        cursor: "pointer",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 8,
-      }}
-    >
-      {children}
-    </button>
-  );
+  return <WalkbookClient walkbook={walkbook} />;
 }
