@@ -55,6 +55,13 @@ export function EditUserModal({
   const [active, setActive] = useState(user.active);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Password actions live in their own state silo so a reset notice
+  // doesn't get swept away by a profile save / failure.
+  const [passwordBusy, setPasswordBusy] = useState<"idle" | "email" | "set">("idle");
+  const [passwordNotice, setPasswordNotice] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [showSetPassword, setShowSetPassword] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -105,6 +112,50 @@ export function EditUserModal({
     }
     onClose();
     router.refresh();
+  }
+
+  async function sendResetEmail() {
+    setPasswordBusy("email");
+    setPasswordError(null);
+    setPasswordNotice(null);
+    const res = await fetch(`/api/admin/users/${user.id}/password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "send_reset_email" }),
+    });
+    setPasswordBusy("idle");
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setPasswordError(body.error ?? `${res.status}`);
+      return;
+    }
+    setPasswordNotice(`Reset email sent to ${user.email}.`);
+  }
+
+  async function setPasswordDirect() {
+    if (newPassword.length < 8) {
+      setPasswordError("Password must be at least 8 characters.");
+      return;
+    }
+    setPasswordBusy("set");
+    setPasswordError(null);
+    setPasswordNotice(null);
+    const res = await fetch(`/api/admin/users/${user.id}/password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "set_password", password: newPassword }),
+    });
+    setPasswordBusy("idle");
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setPasswordError(body.error ?? `${res.status}`);
+      return;
+    }
+    setNewPassword("");
+    setShowSetPassword(false);
+    setPasswordNotice(
+      "Password set. The user will be prompted to choose their own on next login.",
+    );
   }
 
   async function deactivateHard() {
@@ -267,6 +318,69 @@ export function EditUserModal({
             <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
             Active account
           </label>
+
+          <div className="rounded-md border border-border bg-navy-50/40 p-3">
+            <p className="text-xs font-semibold uppercase tracking-widest text-navy-500">
+              Password
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={sendResetEmail}
+                disabled={passwordBusy !== "idle"}
+                className="rounded-md border border-navy-200 bg-white px-3 py-1.5 text-xs font-medium text-navy-700 hover:bg-navy-50 disabled:opacity-50"
+              >
+                {passwordBusy === "email" ? "Sending…" : "Send reset email"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSetPassword((v) => !v);
+                  setPasswordError(null);
+                  setPasswordNotice(null);
+                }}
+                disabled={passwordBusy !== "idle"}
+                className="rounded-md border border-navy-200 bg-white px-3 py-1.5 text-xs font-medium text-navy-700 hover:bg-navy-50 disabled:opacity-50"
+              >
+                {showSetPassword ? "Cancel set" : "Set new password…"}
+              </button>
+            </div>
+            {showSetPassword ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Input
+                  type="text"
+                  autoComplete="new-password"
+                  placeholder="At least 8 characters"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="flex-1 min-w-[12rem] font-mono text-sm"
+                />
+                <Button
+                  type="button"
+                  variant="accent"
+                  onClick={setPasswordDirect}
+                  disabled={passwordBusy !== "idle" || newPassword.length < 8}
+                >
+                  {passwordBusy === "set" ? "Setting…" : "Set password"}
+                </Button>
+              </div>
+            ) : null}
+            {passwordNotice ? (
+              <p className="mt-2 rounded bg-emerald-100 px-2 py-1 text-[11px] text-emerald-800">
+                {passwordNotice}
+              </p>
+            ) : null}
+            {passwordError ? (
+              <p className="mt-2 rounded bg-crimson/10 px-2 py-1 text-[11px] text-crimson">
+                {passwordError}
+              </p>
+            ) : null}
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Reset email lands the user on /set-password with a recovery
+              session. Setting directly is for in-person resets — the user
+              will still be forced to choose their own on next login.
+            </p>
+          </div>
         </div>
 
         {error ? (

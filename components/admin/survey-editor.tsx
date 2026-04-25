@@ -506,6 +506,38 @@ export function SurveyEditor({
               placeholder="Search walkbooks"
               className="rounded border border-navy-200 px-2 py-1 text-xs"
             />
+            {/* Bulk-toggle the *currently visible* (filtered) walkbooks.
+                Search-aware on purpose — admins can narrow the list and
+                "select all" only attaches what they're looking at. When
+                everything visible is already attached, it flips to a
+                "deselect visible" action. */}
+            {filteredWalkbooks.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const allChecked = filteredWalkbooks.every((w) =>
+                    walkbookSelection.has(w.id),
+                  );
+                  setWalkbookSelection((prev) => {
+                    const next = new Set(prev);
+                    for (const w of filteredWalkbooks) {
+                      if (allChecked) next.delete(w.id);
+                      else next.add(w.id);
+                    }
+                    return next;
+                  });
+                }}
+                className="rounded border border-navy-200 bg-white px-2 py-1 text-xs font-medium text-navy-700 hover:bg-navy-50"
+              >
+                {filteredWalkbooks.every((w) => walkbookSelection.has(w.id))
+                  ? walkbookSearch
+                    ? `Deselect ${filteredWalkbooks.length} visible`
+                    : `Deselect all (${filteredWalkbooks.length})`
+                  : walkbookSearch
+                    ? `Select ${filteredWalkbooks.length} visible`
+                    : `Select all (${filteredWalkbooks.length})`}
+              </button>
+            ) : null}
             <Button
               type="button"
               variant="accent"
