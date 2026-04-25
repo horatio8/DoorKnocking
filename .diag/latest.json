@@ -1,5 +1,5 @@
 {
-  "at": "2026-04-25T04:07:14.914Z",
+  "at": "2026-04-25T04:55:00.561Z",
   "env": {
     "has_NEXT_PUBLIC_SUPABASE_URL": true,
     "NEXT_PUBLIC_SUPABASE_URL_host": "wrqydigzshnxvfvbdpkw.supabase.co",
@@ -38,7 +38,7 @@
     {
       "name": "service_role.users_count",
       "ok": true,
-      "detail": "count=7"
+      "detail": "count=8"
     },
     {
       "name": "users.orphan_check",
@@ -55,17 +55,17 @@
     "clients": 2,
     "client_credentials": 2,
     "districts": 2,
-    "users": 7,
-    "voters": 3120,
-    "households": 2878,
-    "walkbooks": 113,
-    "walkbook_households": 1000,
+    "users": 8,
+    "voters": 4255,
+    "households": 7138,
+    "walkbooks": 221,
+    "walkbook_households": 2000,
     "walkbook_assignments": 6,
-    "walk_time_calibration": 1,
-    "walkbook_generation_runs": 1,
+    "walk_time_calibration": 2,
+    "walkbook_generation_runs": 2,
     "knock_events": 4,
-    "surveys": 1,
-    "survey_questions": 2,
+    "surveys": 3,
+    "survey_questions": 13,
     "survey_responses": 0,
     "tags": 0,
     "voter_tags": 0
