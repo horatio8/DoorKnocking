@@ -46,6 +46,19 @@ interface ImportJobSnapshot {
   error_message: string | null;
   started_at: string | null;
   finished_at: string | null;
+  // Optional knock-history side-effect from the CSV (only present
+  // when the admin mapped a knock_status column). Folded into
+  // error_detail by the import worker so we don't have to add new
+  // columns just for this.
+  error_detail: {
+    knocks_attempted?: number;
+    knocks_inserted?: number;
+    knocks_skipped_no_status?: number;
+    knocks_skipped_unknown_status?: number;
+    knocks_skipped_no_voter?: number;
+    knocks_failed?: number;
+    knocks_errors?: string[];
+  } | null;
 }
 
 const STEPS: Array<{ key: Step; label: string }> = [
@@ -161,9 +174,23 @@ export function AirtableFileUploadWizard({ districtId, districtName, hasCanonica
         const job = body.job as ImportJobSnapshot;
         setJobStatus(job);
         if (job.status === "imported") {
-          setPushSummary(
-            `Imported ${job.rows_imported} voter${job.rows_imported === 1 ? "" : "s"} · ${job.rows_geocoded} geocoded${job.rows_failed > 0 ? ` · ${job.rows_failed} skipped` : ""}`,
-          );
+          {
+            const knockBits: string[] = [];
+            const ed = job.error_detail;
+            if (ed && typeof ed.knocks_inserted === "number" && ed.knocks_inserted > 0) {
+              knockBits.push(`${ed.knocks_inserted} knock update${ed.knocks_inserted === 1 ? "" : "s"} applied`);
+            }
+            if (ed && typeof ed.knocks_skipped_unknown_status === "number" && ed.knocks_skipped_unknown_status > 0) {
+              knockBits.push(`${ed.knocks_skipped_unknown_status} unrecognised status${ed.knocks_skipped_unknown_status === 1 ? "" : "es"} skipped`);
+            }
+            if (ed && typeof ed.knocks_skipped_no_voter === "number" && ed.knocks_skipped_no_voter > 0) {
+              knockBits.push(`${ed.knocks_skipped_no_voter} knock${ed.knocks_skipped_no_voter === 1 ? "" : "s"} couldn't match a voter`);
+            }
+            const knockSummary = knockBits.length > 0 ? ` · ${knockBits.join(" · ")}` : "";
+            setPushSummary(
+              `Imported ${job.rows_imported} voter${job.rows_imported === 1 ? "" : "s"} · ${job.rows_geocoded} geocoded${job.rows_failed > 0 ? ` · ${job.rows_failed} skipped` : ""}${knockSummary}`,
+            );
+          }
           setStep("done");
           router.refresh();
           return;
@@ -412,7 +439,7 @@ function ReviewStep({
     (acc[f.group] ||= []).push(f);
     return acc;
   }, {});
-  const groupOrder = ["identity", "name", "address", "contact", "party", "metadata"];
+  const groupOrder = ["identity", "name", "address", "contact", "party", "metadata", "knock"];
   const { preview, proposal } = uploadState;
   return (
     <div className="space-y-4 rounded-lg border border-border bg-white p-4">

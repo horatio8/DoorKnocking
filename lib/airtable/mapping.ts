@@ -5,7 +5,7 @@ export interface PlatformField {
   label: string;
   required: boolean;
   description: string;
-  group: "identity" | "name" | "address" | "contact" | "party" | "metadata";
+  group: "identity" | "name" | "address" | "contact" | "party" | "metadata" | "knock";
 }
 
 export const PLATFORM_FIELDS: PlatformField[] = [
@@ -46,6 +46,22 @@ export const PLATFORM_FIELDS: PlatformField[] = [
     description: "Party score from a model (e.g. R, D, I, persuadable)." },
   { key: "moved", label: "Moved away", required: false, group: "metadata",
     description: "Boolean; true if this voter is no longer at this address." },
+
+  // Knock-history columns. All optional. When `knock_status` is present
+  // and recognised, the importer writes one knock_events row per CSV
+  // row, deduped by a deterministic client_event_id so re-uploads
+  // don't double-insert. The status flows through the
+  // `status_from_knock` trigger and updates voters.current_status +
+  // households.status — i.e. map pin colours update automatically.
+  // See lib/airtable/import-knocks.ts for the actual ingestion.
+  { key: "knock_status", label: "Knock status", required: false, group: "knock",
+    description: "Outcome of a prior knock for this voter. Recognised values: not_knocked, no_answer, come_back_later, contacted, refused, wrong_address. When set, the importer logs a knock_events row." },
+  { key: "knocked_at", label: "Knocked at", required: false, group: "knock",
+    description: "When the knock happened. ISO 8601 (2026-04-25T15:00:00Z) or MM/DD/YYYY. Defaults to import time when missing." },
+  { key: "knocker_email", label: "Knocker email", required: false, group: "knock",
+    description: "Email of the volunteer who recorded the knock — must match an existing user. Falls back to the admin who uploaded the file when blank or unrecognised." },
+  { key: "knock_notes", label: "Knock notes", required: false, group: "knock",
+    description: "Free-text notes from the knock (e.g. survey summary). Lands in knock_events.notes." },
 ];
 
 export type FieldMapping = Record<string, string | null>;

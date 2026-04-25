@@ -10,6 +10,7 @@ import type { FieldMapping } from "./mapping";
 import { parseFile, detectFormat } from "./file-parser";
 import { householdKey } from "@/lib/addresses/normalize";
 import { runImport } from "./import";
+import { importKnocksFromRows, type ImportKnocksResult } from "./import-knocks";
 
 export interface PushFromFileArgs {
   supabase: SupabaseClient;
@@ -33,13 +34,15 @@ export type PushProgressEvent =
   | { phase: "pushing" }
   | { phase: "pushed"; householdsPushed: number; votersPushed: number }
   | { phase: "importing" }
-  | { phase: "imported"; summary: Awaited<ReturnType<typeof runImport>> };
+  | { phase: "imported"; summary: Awaited<ReturnType<typeof runImport>> }
+  | { phase: "knocks_imported"; result: ImportKnocksResult };
 
 export interface PushResult {
   parsed_rows: number;
   households_pushed: number;
   voters_pushed: number;
   import_summary: Awaited<ReturnType<typeof runImport>>;
+  knocks_import?: ImportKnocksResult;
 }
 
 const CANONICAL_IMPORT_MAPPING: FieldMapping = {
@@ -193,10 +196,37 @@ export async function pushFromFile(args: PushFromFileArgs): Promise<PushResult> 
     .eq("id", importFileId);
   await args.onProgress?.({ phase: "imported", summary: importSummary });
 
+  // 7. Optional knock-history ingest. Runs only when the admin
+  // mapped a knock_status column. We pass the raw parsed rows
+  // (header-keyed) so the helper can pluck whichever knock columns
+  // were mapped. defaultKnockerId comes from the file's uploaded_by
+  // so unmatched knocker_email values fall back to "the admin who
+  // uploaded this CSV", which is always a real user.
+  let knocksImport: ImportKnocksResult | undefined;
+  if (mapping["knock_status"]) {
+    const { data: fileRow } = await supabase
+      .from("import_files")
+      .select("uploaded_by")
+      .eq("id", importFileId)
+      .maybeSingle();
+    const defaultKnockerId =
+      (fileRow as { uploaded_by: string | null } | null)?.uploaded_by ?? null;
+    knocksImport = await importKnocksFromRows({
+      supabase,
+      importFileId,
+      districtId,
+      defaultKnockerId,
+      mapping,
+      rows: parsed.rows,
+    });
+    await args.onProgress?.({ phase: "knocks_imported", result: knocksImport });
+  }
+
   return {
     parsed_rows: parsed.rowCount,
     households_pushed: createdHouseholds.length,
     voters_pushed: createdVoters.length,
     import_summary: importSummary,
+    knocks_import: knocksImport,
   };
 }

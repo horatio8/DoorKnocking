@@ -139,6 +139,24 @@ export async function GET(req: Request) {
               locked_by: null,
             });
             return;
+          case "knocks_imported":
+            // Optional knock-history ingest — fold the result into
+            // the import_jobs row's error_detail so the admin can
+            // see counts in /admin/system/jobs without us minting
+            // new columns. Job is still 'imported'; this just
+            // surfaces the side-effect counts.
+            await patchImportJob(supabase, job.id, {
+              error_detail: {
+                knocks_attempted: evt.result.attempted,
+                knocks_inserted: evt.result.inserted,
+                knocks_skipped_no_status: evt.result.skippedNoStatus,
+                knocks_skipped_unknown_status: evt.result.skippedUnknownStatus,
+                knocks_skipped_no_voter: evt.result.skippedNoVoter,
+                knocks_failed: evt.result.failed,
+                knocks_errors: evt.result.errors.slice(0, 10),
+              },
+            });
+            return;
         }
       },
     });
