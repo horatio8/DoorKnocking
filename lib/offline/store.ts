@@ -3,7 +3,6 @@
 import { create } from "zustand";
 import { v4 as uuid } from "uuid";
 import { enqueue, pendingOutboxCount } from "./db";
-import { flushOutbox } from "./sync";
 import type {
   Household,
   HouseholdStatus,
@@ -126,59 +125,99 @@ export const useFieldStore = create<FieldState>((set, get) => ({
       created_at: now,
     };
     get().applyKnockOptimistic(event);
+    const payload = {
+      id: clientEventId,
+      client_event_id: clientEventId,
+      household_id: household.id,
+      voter_id: voterId,
+      user_id: userId,
+      walkbook_id: walkbookId,
+      status,
+      knocked_at: now,
+      duration_seconds: null,
+      notes: notes ?? null,
+      survey_id: surveyId,
+    };
+
+    // Online path: POST to /api/knocker/knock-event so the server
+    // (service role) writes the row immediately and surfaces any
+    // schema/FK error back to the door, instead of disappearing
+    // silently into the outbox flush. The previous browser-RLS
+    // upsert was rejecting silently in some installs and the
+    // volunteer ended up at /app/survey/<id> staring at a
+    // "Couldn't find that knock" dead end.
+    //
+    // We only fall back to the outbox if the POST itself fails
+    // (network blip, 5xx) — that way the volunteer's work is never
+    // lost, but online failures get a real on-screen error instead
+    // of being deferred forever.
+    const online = typeof navigator !== "undefined" && navigator.onLine;
+    if (online) {
+      try {
+        const res = await fetch("/api/knocker/knock-event", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          keepalive: true,
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as {
+            error?: string;
+            detail?: string;
+          };
+          const message =
+            body.detail ?? body.error ?? `knock save failed (${res.status})`;
+          console.error("[survey:record-knock] api commit failed", {
+            knockEventId: clientEventId,
+            surveyId,
+            status: res.status,
+            message,
+          });
+          // Throw so handleCommit at the door sees the failure and
+          // doesn't navigate the volunteer into a runner that won't
+          // find the row.
+          throw new Error(message);
+        }
+        console.info("[survey:record-knock] api commit ok", {
+          knockEventId: clientEventId,
+          surveyId,
+        });
+        // Successful server write — no need to enqueue anything.
+        return event;
+      } catch (err) {
+        // Differentiate network-style failures from app-level errors.
+        // Network failure = enqueue + return (the row will sync via
+        // the outbox worker). App-level error (api returned 4xx/5xx
+        // with a body) = re-throw so the door surfaces the real
+        // message; the optimistic local event is still in the store.
+        const message = (err as Error).message;
+        const looksLikeNetwork =
+          message === "Failed to fetch" ||
+          message === "NetworkError when attempting to fetch resource." ||
+          message.toLowerCase().includes("fetch failed");
+        if (!looksLikeNetwork) {
+          throw err;
+        }
+        console.warn(
+          "[survey:record-knock] api commit network error — falling back to outbox",
+          { knockEventId: clientEventId, message },
+        );
+      }
+    }
+
+    // Offline (or transient network failure mid-POST) — queue the
+    // payload so the background sync worker picks it up later.
     await enqueue({
       id: clientEventId,
       endpoint: "knock_event",
-      payload: {
-        // Use the client-generated UUID as the row id too. This keeps
-        // the id stable across client + server so the survey runner
-        // (which navigates to /app/survey/<id>) can resolve the row
-        // as soon as the outbox flushes.
-        id: clientEventId,
-        client_event_id: clientEventId,
-        household_id: household.id,
-        voter_id: voterId,
-        user_id: userId,
-        walkbook_id: walkbookId,
-        status,
-        knocked_at: now,
-        duration_seconds: null,
-        notes: notes ?? null,
-        survey_id: surveyId,
-      },
+      payload,
     });
     await get().refreshPendingCount();
-    // Kick the outbox immediately so the server row exists by the time
-    // handleCommit routes to /app/survey/<id>. Offline (or flush fail)
-    // falls back to the 30-second background worker; the optimistic
-    // local event is already in the store either way.
-    if (typeof navigator !== "undefined" && navigator.onLine) {
-      try {
-        const result = await flushOutbox();
-        await get().refreshPendingCount();
-        console.info("[survey:record-knock] outbox flushed", {
-          knockEventId: clientEventId,
-          surveyId,
-          ...result,
-        });
-        if (result.failed > 0) {
-          console.warn(
-            "[survey:record-knock] flush left failures — survey runner may show 'Couldn't find that knock'",
-            { knockEventId: clientEventId, failed: result.failed },
-          );
-        }
-      } catch (err) {
-        console.warn(
-          "[survey:record-knock] immediate flush failed; will retry via worker",
-          { knockEventId: clientEventId, error: (err as Error).message },
-        );
-      }
-    } else {
-      console.info("[survey:record-knock] offline at commit; queued in outbox", {
-        knockEventId: clientEventId,
-        surveyId,
-      });
-    }
+    console.info("[survey:record-knock] queued for offline sync", {
+      knockEventId: clientEventId,
+      surveyId,
+      online,
+    });
     return event;
   },
 
