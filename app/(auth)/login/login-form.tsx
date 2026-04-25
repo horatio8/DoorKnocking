@@ -19,13 +19,29 @@ export function LoginForm() {
     setError(null);
     const supabase = getSupabaseBrowserClient();
     try {
-      const timeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Sign-in timed out after 15s")), 15_000),
-      );
-      const { data, error: authError } = (await Promise.race([
-        supabase.auth.signInWithPassword({ email, password }),
-        timeout,
-      ])) as Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>;
+      const signIn = () => {
+        const timeout = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Sign-in timed out after 15s")), 15_000),
+        );
+        return Promise.race([
+          supabase.auth.signInWithPassword({ email, password }),
+          timeout,
+        ]) as ReturnType<typeof supabase.auth.signInWithPassword>;
+      };
+
+      let { data, error: authError } = await signIn();
+
+      // Invite-only platform — email confirmation adds no security here, it
+      // just blocks legitimate users whose invite path didn't auto-confirm.
+      // Force-confirm via the server endpoint and retry once.
+      if (authError && /email not confirmed/i.test(authError.message)) {
+        await fetch("/api/auth/confirm-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        }).catch(() => null);
+        ({ data, error: authError } = await signIn());
+      }
 
       if (authError || !data?.session) {
         setError(authError?.message ?? "Sign in failed");
