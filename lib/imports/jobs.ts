@@ -34,7 +34,20 @@ export interface ImportJob {
   updated_at: string;
 }
 
-const LOCK_TTL_MINUTES = 5;
+// Must exceed the import-worker route's maxDuration so a worker that
+// runs to the Vercel ceiling can't have its lock declared stale at the
+// same instant — that race lets a second cron tick claim the job and
+// run it concurrently with the first, which double-pushes Airtable
+// records (batchCreate isn't idempotent).
+const LOCK_TTL_MINUTES = 10;
+
+// Statuses that mean "still owes work" — what the worker should
+// consider for reclamation. Importantly includes "pushed", which is the
+// transient state between the Airtable push completing and the
+// Supabase import starting; if the worker died in that window the row
+// would otherwise sit there forever because no future tick would look
+// at it.
+const RECLAIMABLE_STATUSES = ["queued", "pushing", "pushed", "importing"] as const;
 
 // Creates a new queued job for an uploaded file. Returns the row.
 export async function enqueueImportJob(
@@ -81,7 +94,7 @@ export async function claimNextImportJob(
     const unlocked = await supabase
       .from("import_jobs")
       .select("id")
-      .in("status", ["queued", "pushing", "importing"])
+      .in("status", RECLAIMABLE_STATUSES as unknown as string[])
       .is("locked_at", null)
       .order("created_at", { ascending: true })
       .limit(1);
@@ -94,7 +107,7 @@ export async function claimNextImportJob(
     const stale = await supabase
       .from("import_jobs")
       .select("id")
-      .in("status", ["queued", "pushing", "importing"])
+      .in("status", RECLAIMABLE_STATUSES as unknown as string[])
       .lt("locked_at", cutoff)
       .order("created_at", { ascending: true })
       .limit(1);
