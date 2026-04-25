@@ -159,7 +159,19 @@ export async function pushFromFile(args: PushFromFileArgs): Promise<PushResult> 
 
   // 4. Push voters (typecast=true lets the Household field take the
   // primary field string value and resolve it to a rec id).
-  const voterRecords = mapped.map((m) => ({ fields: m.voterFields }));
+  //
+  // Dedupe by voterKey first. CSVs are commonly denormalised — one
+  // row per knock / per phone / per outreach event — so the same
+  // voter appears N times. Without dedupe we used to push N copies
+  // to Airtable and let the Supabase upsert collapse them, leaving
+  // Airtable's voters table N× larger than the actual unique-people
+  // count. Last-write-wins for any field collisions, which matches
+  // what runImport does on the Supabase side via upsert.
+  // Knock-import (lib/airtable/import-knocks.ts) reads from the raw
+  // parsed.rows, so per-row knock data is unaffected by this dedupe.
+  const voterByKey = new Map<string, (typeof mapped)[number]>();
+  for (const m of mapped) voterByKey.set(m.voterKey, m);
+  const voterRecords = [...voterByKey.values()].map((m) => ({ fields: m.voterFields }));
   const createdVoters = await airtable.batchCreate(baseId, votersTableId, voterRecords);
 
   // 5. Update import_files row so the admin sees progress.
