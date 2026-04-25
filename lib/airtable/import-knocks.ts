@@ -11,6 +11,10 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { FieldMapping } from "./mapping";
+import {
+  mapUnknownStatusesViaClaude,
+  type ClaudeStatusInference,
+} from "./claude-status-mapper";
 
 // `not_knocked` is intentionally NOT a valid knock_events.status
 // (it represents the *absence* of a knock — the default state on
@@ -174,6 +178,17 @@ export interface ImportKnocksResult {
   // mapping is wrong, or the voter wasn't in the same CSV). First
   // 20 only.
   unmatchedVoterKeySamples: string[];
+  // Claude-assisted status interpretations for values that didn't
+  // normalise via the local alias dictionary. One entry per distinct
+  // unknown value Claude was asked about. `mapped_to` is the
+  // canonical knock_events.status the value resolved to (or null
+  // when Claude couldn't justify a mapping). When this array is
+  // populated, the inserted/skipped counters above include rows
+  // Claude rescued. See lib/airtable/claude-status-mapper.ts.
+  claudeInferences: ClaudeStatusInference[];
+  claudeRescued: number;
+  claudeSkipped: boolean;
+  claudeSkippedReason: string | null;
 }
 
 const SAMPLE_CAP = 20;
@@ -191,9 +206,26 @@ export async function importKnocksFromRows(
     errors: [],
     unknownStatusSamples: [],
     unmatchedVoterKeySamples: [],
+    claudeInferences: [],
+    claudeRescued: 0,
+    claudeSkipped: false,
+    claudeSkippedReason: null,
   };
   const unknownCounts = new Map<string, number>();
   const unmatchedKeys: string[] = [];
+  // Stash unknown-status rows here so Claude can rescue them in a
+  // single API call after the row loop completes. Without this we'd
+  // either need a per-row Claude call (slow + expensive) or have to
+  // re-run the loop to apply Claude's mappings.
+  interface UnknownPending {
+    voterKey: string;
+    rawStatus: string;
+    rawTrimmedLower: string;
+    knockedAt: string;
+    knockerEmail: string | null;
+    csvNotes: string | null;
+  }
+  const unknownPending: UnknownPending[] = [];
 
   const statusCol = args.mapping["knock_status"];
   if (!statusCol) {
@@ -235,13 +267,30 @@ export async function importKnocksFromRows(
     }
     const status = normaliseStatus(rawStatus);
     if (!status) {
-      result.skippedUnknownStatus++;
-      // Track distinct unknown values so the admin sees exactly
-      // which strings their CSV used. Trim + lowercase the key to
-      // group "knocked" / "Knocked" / " knocked " together; preserve
-      // the raw value as a sample so it reads naturally.
+      // Unknown to the local dictionary — count it AND defer the
+      // row for a Claude-assisted rescue pass after the loop.
+      // Without the deferral we'd skip these rows here and let
+      // Claude only update the counts; instead we rebuild the
+      // pending entry below once Claude has spoken.
       const key = rawStatus.trim().toLowerCase();
       unknownCounts.set(key, (unknownCounts.get(key) ?? 0) + 1);
+      const knockedAt = normaliseKnockedAt(
+        knockedAtCol ? row[knockedAtCol] : null,
+        fallbackTime,
+      );
+      const knockerEmail =
+        knockerEmailCol && row[knockerEmailCol]?.trim()
+          ? row[knockerEmailCol].trim().toLowerCase()
+          : null;
+      const csvNotes = notesCol ? row[notesCol]?.trim() ?? null : null;
+      unknownPending.push({
+        voterKey,
+        rawStatus,
+        rawTrimmedLower: key,
+        knockedAt,
+        knockerEmail,
+        csvNotes: csvNotes || null,
+      });
       continue;
     }
     const knockedAt = normaliseKnockedAt(
@@ -269,6 +318,55 @@ export async function importKnocksFromRows(
       : csvNotes;
     pending.push({ voterKey, status, knockedAt, knockerEmail, notes: notes || null });
   }
+
+  // Claude-assisted rescue for unknown-status rows. Sends the
+  // distinct lowercased values (capped at 100 to keep the prompt
+  // small — voter files almost never have more than a dozen
+  // distinct status codes) and asks Claude to map each to a
+  // canonical enum value. Rows whose value Claude maps get
+  // promoted to `pending`; rows whose value Claude returns null
+  // for stay in skippedUnknownStatus.
+  if (unknownPending.length > 0) {
+    const distinctUnknowns = Array.from(
+      new Set(unknownPending.map((p) => p.rawTrimmedLower)),
+    ).slice(0, 100);
+    const claudeResult = await mapUnknownStatusesViaClaude(distinctUnknowns);
+    result.claudeSkipped = claudeResult.skipped;
+    result.claudeSkippedReason = claudeResult.skippedReason;
+    if (claudeResult.skipped) {
+      // Couldn't reach Claude — fall back to the original behaviour
+      // and skip every unknown row. The unknownStatusSamples list
+      // we already collected still tells the admin what to fix.
+      result.skippedUnknownStatus += unknownPending.length;
+    } else {
+      result.claudeInferences = Array.from(claudeResult.byValue.values());
+      for (const u of unknownPending) {
+        const inference = claudeResult.byValue.get(u.rawTrimmedLower);
+        if (!inference || !inference.mapped_to) {
+          // Claude declined to map this value — count it as skipped.
+          result.skippedUnknownStatus++;
+          continue;
+        }
+        // Promote to a pending row with notes carrying both the
+        // raw status and a flag that Claude resolved it (so the
+        // admin sees provenance in the household view).
+        const noteParts = [
+          u.csvNotes,
+          `Status: ${u.rawStatus.trim()}`,
+          `(claude: ${inference.confidence})`,
+        ].filter(Boolean);
+        pending.push({
+          voterKey: u.voterKey,
+          status: inference.mapped_to,
+          knockedAt: u.knockedAt,
+          knockerEmail: u.knockerEmail,
+          notes: noteParts.join(" · ") || null,
+        });
+        result.claudeRescued++;
+      }
+    }
+  }
+
   result.attempted = pending.length;
   // Materialise samples now even if we early-return: an admin who
   // mapped knock_status to a column that's entirely unrecognised

@@ -145,9 +145,11 @@ export async function GET(req: Request) {
             // see counts in /admin/system/jobs without us minting
             // new columns. Job is still 'imported'; this just
             // surfaces the side-effect counts plus the *actual*
-            // unrecognised values + unmatched keys, so the admin
-            // can read which CSV strings were skipped and either
-            // add aliases or rewrite the source data.
+            // unrecognised values + unmatched keys plus Claude's
+            // inferences, so the admin can read which CSV strings
+            // were skipped, which Claude resolved, and either
+            // promote those mappings to permanent aliases or
+            // rewrite the source data.
             await patchImportJob(supabase, job.id, {
               error_detail: {
                 knocks_attempted: evt.result.attempted,
@@ -159,6 +161,10 @@ export async function GET(req: Request) {
                 knocks_errors: evt.result.errors.slice(0, 10),
                 knocks_unknown_status_samples: evt.result.unknownStatusSamples,
                 knocks_unmatched_voter_keys: evt.result.unmatchedVoterKeySamples,
+                knocks_claude_rescued: evt.result.claudeRescued,
+                knocks_claude_skipped: evt.result.claudeSkipped,
+                knocks_claude_skipped_reason: evt.result.claudeSkippedReason,
+                knocks_claude_inferences: evt.result.claudeInferences,
               },
             });
             return;

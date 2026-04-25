@@ -60,6 +60,15 @@ interface ImportJobSnapshot {
     knocks_errors?: string[];
     knocks_unknown_status_samples?: Array<{ value: string; count: number }>;
     knocks_unmatched_voter_keys?: string[];
+    knocks_claude_rescued?: number;
+    knocks_claude_skipped?: boolean;
+    knocks_claude_skipped_reason?: string | null;
+    knocks_claude_inferences?: Array<{
+      value: string;
+      mapped_to: string | null;
+      confidence: "high" | "medium" | "low";
+      reason: string;
+    }>;
   } | null;
 }
 
@@ -396,6 +405,54 @@ export function AirtableFileUploadWizard({ districtId, districtName, hasCanonica
             <p className="font-medium">Import complete.</p>
             {pushSummary ? <p className="mt-1 text-xs">{pushSummary}</p> : null}
           </div>
+
+          {/* Claude-assisted rescue panel — shows what the model
+              inferred for status values not in our local dictionary.
+              Lets the admin audit confidence + reasoning before
+              promoting any of these to a permanent alias. */}
+          {jobStatus?.error_detail?.knocks_claude_inferences &&
+          jobStatus.error_detail.knocks_claude_inferences.length > 0 ? (
+            <div className="rounded-lg border border-navy-200 bg-navy-50 p-4 text-sm text-navy-900">
+              <p className="font-medium">
+                Claude resolved {jobStatus.error_detail.knocks_claude_rescued ?? 0} row
+                {jobStatus.error_detail.knocks_claude_rescued === 1 ? "" : "s"} from
+                {" "}
+                {jobStatus.error_detail.knocks_claude_inferences.length} unrecognised value
+                {jobStatus.error_detail.knocks_claude_inferences.length === 1 ? "" : "s"}.
+              </p>
+              <p className="mt-1 text-xs">
+                The importer asked Claude to map each value to the canonical knock_status
+                enum. Audit the inferences below — promote ones you trust to permanent
+                aliases by sending them to the dev team.
+              </p>
+              <ul className="mt-2 space-y-1 font-mono text-[11px]">
+                {jobStatus.error_detail.knocks_claude_inferences.map((i) => (
+                  <li key={i.value}>
+                    <span className="rounded bg-white/70 px-1.5 py-0.5">&ldquo;{i.value}&rdquo;</span>
+                    <span className="ml-2">→</span>
+                    <span className="ml-2 font-semibold">
+                      {i.mapped_to ?? <em className="font-normal opacity-70">(skipped)</em>}
+                    </span>
+                    <span className="ml-2 text-[10px] uppercase tracking-widest text-navy-500">
+                      {i.confidence}
+                    </span>
+                    {i.reason ? (
+                      <span className="ml-2 font-sans text-navy-700">— {i.reason}</span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {jobStatus?.error_detail?.knocks_claude_skipped ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-[11px] text-amber-900">
+              Claude-assisted status mapping was skipped:{" "}
+              <span className="font-mono">
+                {jobStatus.error_detail.knocks_claude_skipped_reason ?? "unknown reason"}
+              </span>
+              . Set ANTHROPIC_API_KEY or check Vercel logs to enable it on the next run.
+            </div>
+          ) : null}
 
           {/* Surface the *actual* unrecognised status values + counts
               so the admin sees exactly which CSV strings were skipped.

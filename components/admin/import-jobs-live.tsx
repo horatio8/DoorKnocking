@@ -33,6 +33,15 @@ interface JobRow {
     knocks_errors?: string[];
     knocks_unknown_status_samples?: Array<{ value: string; count: number }>;
     knocks_unmatched_voter_keys?: string[];
+    knocks_claude_rescued?: number;
+    knocks_claude_skipped?: boolean;
+    knocks_claude_skipped_reason?: string | null;
+    knocks_claude_inferences?: Array<{
+      value: string;
+      mapped_to: string | null;
+      confidence: "high" | "medium" | "low";
+      reason: string;
+    }>;
   } | null;
   started_at: string | null;
   finished_at: string | null;
@@ -161,6 +170,9 @@ export function ImportJobsLive({
                   <span className="font-medium">
                     {(job.error_detail.knocks_inserted ?? 0).toLocaleString()} applied
                   </span>
+                  {(job.error_detail.knocks_claude_rescued ?? 0) > 0
+                    ? ` (${(job.error_detail.knocks_claude_rescued ?? 0).toLocaleString()} via Claude)`
+                    : ""}
                   {(job.error_detail.knocks_skipped_unknown_status ?? 0) > 0
                     ? ` · ${(job.error_detail.knocks_skipped_unknown_status ?? 0).toLocaleString()} unrecognised`
                     : ""}
@@ -169,6 +181,25 @@ export function ImportJobsLive({
                     : ""}
                 </summary>
                 <div className="mt-2 space-y-2">
+                  {job.error_detail.knocks_claude_inferences &&
+                  job.error_detail.knocks_claude_inferences.length > 0 ? (
+                    <div>
+                      <p className="font-semibold text-navy-700">
+                        Claude inferences ({job.error_detail.knocks_claude_inferences.length})
+                      </p>
+                      <ul className="mt-1 space-y-0.5 font-mono">
+                        {job.error_detail.knocks_claude_inferences.map((i) => (
+                          <li key={i.value}>
+                            <span className="rounded bg-white/70 px-1.5 py-0.5">&ldquo;{i.value}&rdquo;</span>
+                            <span className="ml-2">→ {i.mapped_to ?? "(skipped)"}</span>
+                            <span className="ml-2 text-[10px] uppercase tracking-widest text-navy-500">
+                              {i.confidence}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                   {job.error_detail.knocks_unknown_status_samples &&
                   job.error_detail.knocks_unknown_status_samples.length > 0 ? (
                     <div>
