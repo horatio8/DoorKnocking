@@ -83,6 +83,22 @@ export default async function AdminSurveys() {
   const paused = rows.filter((r) => r.status === "paused");
   const archived = rows.filter((r) => r.status === "archived");
 
+  // Districts in the active client that have no live ('active') survey.
+  // Surfacing this here means an admin doesn't have to discover the
+  // problem from a "no survey live yet" report at the door — the
+  // resolver in /app/household/[id] needs status='active' (or a
+  // walkbook attachment) and an archived-only district silently breaks
+  // canvassing.
+  const activeDistrictIds = new Set(active.map((r) => r.district_id));
+  const districtsWithoutActive = districtOptions.filter((d) => !activeDistrictIds.has(d.id));
+  const reusableByDistrict = new Map<string, typeof rows>();
+  for (const r of rows) {
+    if (r.status === "active") continue;
+    const list = reusableByDistrict.get(r.district_id) ?? [];
+    list.push(r);
+    reusableByDistrict.set(r.district_id, list);
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -99,6 +115,50 @@ export default async function AdminSurveys() {
       {rows.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border bg-white p-10 text-center text-sm text-muted-foreground">
           No surveys yet. Hit <strong>New survey</strong> to start from scratch or a template.
+        </div>
+      ) : null}
+
+      {districtsWithoutActive.length > 0 ? (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="font-medium">
+            {districtsWithoutActive.length === 1
+              ? "1 district has no active survey."
+              : `${districtsWithoutActive.length} districts have no active survey.`}
+          </p>
+          <p className="mt-1 text-xs">
+            Volunteers in these districts hit a &quot;no survey live yet&quot; empty state at the
+            door. Publish a draft, or unarchive an existing survey from its edit page.
+          </p>
+          <ul className="mt-3 space-y-1.5 text-xs">
+            {districtsWithoutActive.map((d) => {
+              const reusable = reusableByDistrict.get(d.id) ?? [];
+              return (
+                <li key={d.id} className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="font-medium text-amber-900">{d.name}</span>
+                  {reusable.length > 0 ? (
+                    <span className="text-amber-800">
+                      {reusable.length} non-active survey{reusable.length === 1 ? "" : "s"}:
+                      {" "}
+                      {reusable.slice(0, 3).map((r, i) => (
+                        <span key={r.id}>
+                          {i > 0 ? ", " : ""}
+                          <Link
+                            href={`/admin/surveys/${r.id}/edit`}
+                            className="underline hover:text-amber-700"
+                          >
+                            {r.name} ({r.status})
+                          </Link>
+                        </span>
+                      ))}
+                      {reusable.length > 3 ? ` +${reusable.length - 3} more` : ""}
+                    </span>
+                  ) : (
+                    <span className="text-amber-800">no surveys yet — create one</span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
         </div>
       ) : null}
 

@@ -326,7 +326,11 @@ export function SurveyEditor({
             <Button variant="ghost" onClick={() => setStatus("archived")}>
               <Archive className="mr-1.5 h-4 w-4" /> Archive
             </Button>
-          ) : null}
+          ) : (
+            <Button variant="outline" onClick={() => setStatus("draft")}>
+              Unarchive (move to draft)
+            </Button>
+          )}
           <Button variant="outline" onClick={() => save()} disabled={saving !== "idle"}>
             <Save className="mr-1.5 h-4 w-4" />
             {saving === "saving" ? "Saving…" : "Save"}
