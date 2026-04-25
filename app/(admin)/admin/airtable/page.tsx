@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { loadSession } from "@/lib/auth/session";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
-import { getActiveClient } from "@/lib/clients/active";
+import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { getActiveDistrict, listScopedDistricts } from "@/lib/districts/active";
 import { Badge } from "@/components/ui/badge";
 import { AirtableOnboarding } from "@/components/admin/airtable-onboarding";
 import { formatRelative } from "@/lib/utils";
@@ -44,20 +44,38 @@ export default async function AdminAirtablePage({
     redirect("/admin");
   }
 
-  const supabase = getSupabaseServerClient();
-  const client = await getActiveClient();
+  // Service-role with role gate (same pattern as the rest of the
+  // migrated admin pages). The sidebar reflects the global scope —
+  // listScopedDistricts handles role + client + district_access.
+  const supabase = getSupabaseServiceRoleClient();
+  const [pinnedDistrict, scopedDistricts] = await Promise.all([
+    getActiveDistrict(),
+    listScopedDistricts(),
+  ]);
+  const scopedIds = scopedDistricts.map((d) => d.id);
 
-  const query = supabase
-    .from("districts")
-    .select(
-      "id, slug, name, airtable_base_id, airtable_voters_table_id, airtable_field_mapping, airtable_is_canonical, airtable_import_status, airtable_last_imported_at, airtable_last_error, airtable_last_import_summary",
-    )
-    .order("name");
-  if (client) query.eq("client_id", client.id);
-  const { data } = await query;
+  // Pull the airtable-flavoured columns for everything in scope so the
+  // sidebar can show import status badges. listScopedDistricts only
+  // returns id/name/slug/client_id/airtable_base_id, not the rest.
+  const { data } = scopedIds.length > 0
+    ? await supabase
+        .from("districts")
+        .select(
+          "id, slug, name, airtable_base_id, airtable_voters_table_id, airtable_field_mapping, airtable_is_canonical, airtable_import_status, airtable_last_imported_at, airtable_last_error, airtable_last_import_summary",
+        )
+        .in("id", scopedIds)
+        .order("name")
+    : { data: [] as DistrictRow[] };
   const districts = (data ?? []) as DistrictRow[];
 
-  const selectedId = searchParams?.district ?? districts[0]?.id ?? null;
+  // Selection precedence: explicit ?district= URL param wins (so old
+  // sidebar links still work), then the globally-pinned district,
+  // then the first in-scope district as a default.
+  const selectedId =
+    searchParams?.district ??
+    pinnedDistrict?.id ??
+    districts[0]?.id ??
+    null;
   const selected = districts.find((d) => d.id === selectedId) ?? null;
 
   const { data: imports } = selected

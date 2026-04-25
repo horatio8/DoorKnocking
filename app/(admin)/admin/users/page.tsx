@@ -3,6 +3,7 @@ import Link from "next/link";
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { getActiveClient } from "@/lib/clients/active";
+import { getActiveDistrict, listScopedDistricts } from "@/lib/districts/active";
 import { Badge } from "@/components/ui/badge";
 import { UsersActionsArea } from "@/components/admin/users-actions-area";
 import { UserRowActions } from "@/components/admin/user-row-actions";
@@ -16,15 +17,15 @@ export default async function AdminUsers() {
     redirect("/app");
   }
   const supabase = getSupabaseServiceRoleClient();
-  const activeClient = await getActiveClient();
-
-  // Districts under the active client — used for the invite form + display.
-  const { data: districtRows } = activeClient
-    ? await supabase.from("districts").select("id, name").eq("client_id", activeClient.id)
-    : session.district?.id
-      ? await supabase.from("districts").select("id, name").eq("id", session.district.id)
-      : { data: [] as Array<{ id: string; name: string }> };
-  const districts = (districtRows ?? []) as Array<{ id: string; name: string }>;
+  const [activeClient, pinnedDistrict, scopedDistricts] = await Promise.all([
+    getActiveClient(),
+    getActiveDistrict(),
+    listScopedDistricts(),
+  ]);
+  // Invite form + table get the full client-scope list of districts so
+  // an admin doesn't lose visibility of other districts when they pin
+  // one in the global switcher.
+  const districts = scopedDistricts.map((d) => ({ id: d.id, name: d.name }));
 
   // Users list — filtered to the active client when one is set. Super-admins
   // on the apex without a picked client see everyone so onboarding of new
@@ -103,7 +104,7 @@ export default async function AdminUsers() {
         clientId={activeClient?.id ?? null}
         clientName={activeClient?.name ?? null}
         districts={districts}
-        defaultDistrictId={session.district?.id ?? districts[0]?.id ?? null}
+        defaultDistrictId={pinnedDistrict?.id ?? districts[0]?.id ?? null}
       />
 
       <div className="overflow-hidden rounded-lg border border-border bg-white">

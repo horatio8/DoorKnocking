@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
-import { getActiveClient } from "@/lib/clients/active";
+import { getActiveDistrict, listScopedDistricts } from "@/lib/districts/active";
 import { BatchesList } from "@/components/admin/batches-list";
 import { formatRelative } from "@/lib/utils";
 
@@ -17,18 +17,15 @@ export default async function BatchesPage() {
   }
 
   const supabase = getSupabaseServiceRoleClient();
-  const activeClient = await getActiveClient();
-
-  const { data: districtRows } = activeClient
-    ? await supabase
-        .from("districts")
-        .select("id, name")
-        .eq("client_id", activeClient.id)
-    : session.district?.id
-      ? await supabase.from("districts").select("id, name").eq("id", session.district.id)
-      : { data: [] as Array<{ id: string; name: string }> };
-  const districtIds = (districtRows ?? []).map((d) => d.id);
-  const districtNameById = new Map((districtRows ?? []).map((d) => [d.id, d.name]));
+  const [pinnedDistrict, scopedDistricts] = await Promise.all([
+    getActiveDistrict(),
+    listScopedDistricts(),
+  ]);
+  const districts = pinnedDistrict
+    ? scopedDistricts.filter((d) => d.id === pinnedDistrict.id)
+    : scopedDistricts;
+  const districtIds = districts.map((d) => d.id);
+  const districtNameById = new Map(districts.map((d) => [d.id, d.name]));
 
   const { data: batches } = districtIds.length > 0
     ? await supabase

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
-import { getActiveClient } from "@/lib/clients/active";
+import { getActiveDistrict, listScopedDistricts } from "@/lib/districts/active";
 import { Badge } from "@/components/ui/badge";
 import { NewScriptButton } from "@/components/admin/new-script-button";
 import { formatRelative } from "@/lib/utils";
@@ -15,20 +15,17 @@ export default async function AdminScriptsPage() {
   if (session.user.role !== "admin" && session.user.role !== "super_admin") redirect("/app");
 
   const supabase = getSupabaseServiceRoleClient();
-  const client = await getActiveClient();
-  const { data: districts } = client
-    ? await supabase
-        .from("districts")
-        .select("id, name")
-        .eq("client_id", client.id)
-        .eq("active", true)
-        .order("name")
-    : session.district
-      ? await supabase.from("districts").select("id, name").eq("id", session.district.id)
-      : { data: [] as Array<{ id: string; name: string }> };
-  const dList = (districts ?? []) as Array<{ id: string; name: string }>;
-  const districtIds = dList.map((d) => d.id);
-  const defaultDistrictId = session.district?.id ?? dList[0]?.id ?? null;
+  const [pinnedDistrict, scopedDistricts] = await Promise.all([
+    getActiveDistrict(),
+    listScopedDistricts(),
+  ]);
+  // Full scope for the New-script picker; pinned district narrows the
+  // table below.
+  const dList = scopedDistricts.map((d) => ({ id: d.id, name: d.name }));
+  const districtIds = pinnedDistrict
+    ? [pinnedDistrict.id]
+    : dList.map((d) => d.id);
+  const defaultDistrictId = pinnedDistrict?.id ?? dList[0]?.id ?? null;
 
   const { data: scripts } = districtIds.length
     ? await supabase

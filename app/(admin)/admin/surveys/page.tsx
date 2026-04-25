@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
-import { getActiveClient } from "@/lib/clients/active";
+import { getActiveDistrict, listScopedDistricts } from "@/lib/districts/active";
 import { Badge } from "@/components/ui/badge";
 import { NewSurveyButton } from "@/components/admin/new-survey-button";
 import { formatRelative } from "@/lib/utils";
@@ -16,21 +16,19 @@ export default async function AdminSurveys() {
     redirect("/app");
   }
   const supabase = getSupabaseServiceRoleClient();
-  const client = await getActiveClient();
-
-  const { data: districts } = client
-    ? await supabase
-        .from("districts")
-        .select("id, name")
-        .eq("client_id", client.id)
-        .eq("active", true)
-        .order("name")
-    : session.district
-      ? await supabase.from("districts").select("id, name").eq("id", session.district.id)
-      : { data: [] as Array<{ id: string; name: string }> };
-  const districtOptions = (districts ?? []) as Array<{ id: string; name: string }>;
+  const [pinnedDistrict, scopedDistricts] = await Promise.all([
+    getActiveDistrict(),
+    listScopedDistricts(),
+  ]);
+  // Full client scope is the source of truth for the New-Survey picker
+  // and the "districts without active surveys" banner. We always query
+  // surveys across the full scope so the banner stays accurate even
+  // when the admin has pinned one district — `displayIds` below
+  // narrows what's *rendered* in the section grids.
+  const districtOptions = scopedDistricts.map((d) => ({ id: d.id, name: d.name }));
   const districtIds = districtOptions.map((d) => d.id);
-  const defaultDistrictId = session.district?.id ?? districtOptions[0]?.id ?? null;
+  const displayIds = pinnedDistrict ? new Set([pinnedDistrict.id]) : null;
+  const defaultDistrictId = pinnedDistrict?.id ?? districtOptions[0]?.id ?? null;
 
   // Pull surveys + per-survey counts.
   const { data: surveys } = districtIds.length
@@ -78,10 +76,14 @@ export default async function AdminSurveys() {
     }
   }
 
-  const active = rows.filter((r) => r.status === "active");
-  const drafts = rows.filter((r) => r.status === "draft");
-  const paused = rows.filter((r) => r.status === "paused");
-  const archived = rows.filter((r) => r.status === "archived");
+  // Banner uses the full-scope rows so a pinned district doesn't make
+  // it lie about other districts; the rendered sections use rows
+  // narrowed to the pinned district when one is set.
+  const visibleRows = displayIds ? rows.filter((r) => displayIds.has(r.district_id)) : rows;
+  const active = visibleRows.filter((r) => r.status === "active");
+  const drafts = visibleRows.filter((r) => r.status === "draft");
+  const paused = visibleRows.filter((r) => r.status === "paused");
+  const archived = visibleRows.filter((r) => r.status === "archived");
 
   // Districts in the active client that have no live ('active') survey.
   // Surfacing this here means an admin doesn't have to discover the
@@ -89,8 +91,10 @@ export default async function AdminSurveys() {
   // resolver in /app/household/[id] needs status='active' (or a
   // walkbook attachment) and an archived-only district silently breaks
   // canvassing.
-  const activeDistrictIds = new Set(active.map((r) => r.district_id));
-  const districtsWithoutActive = districtOptions.filter((d) => !activeDistrictIds.has(d.id));
+  const allActiveDistrictIds = new Set(
+    rows.filter((r) => r.status === "active").map((r) => r.district_id),
+  );
+  const districtsWithoutActive = districtOptions.filter((d) => !allActiveDistrictIds.has(d.id));
   const reusableByDistrict = new Map<string, typeof rows>();
   for (const r of rows) {
     if (r.status === "active") continue;

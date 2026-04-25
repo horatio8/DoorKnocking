@@ -1,21 +1,44 @@
 import { redirect } from "next/navigation";
 import { loadSession } from "@/lib/auth/session";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { getActiveDistrict, listScopedDistricts } from "@/lib/districts/active";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatRelative } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
+// KPIs are inherently per-district (% contacted, doors today, etc.).
+// When the admin has pinned one in the global switcher we render that
+// district's dashboard; otherwise we render an aggregate for everything
+// in scope (active client's districts, or all districts the admin can
+// access). The aggregate sums counts; the live feed merges across.
 export default async function AdminOverview() {
   const session = await loadSession();
   if (!session) redirect("/login");
-  const supabase = getSupabaseServerClient();
-  const districtId = session.district?.id;
+  if (session.user.role !== "admin" && session.user.role !== "super_admin") {
+    redirect("/app");
+  }
+  const supabase = getSupabaseServiceRoleClient();
 
-  if (!districtId) {
+  const [pinnedDistrict, scopedDistricts] = await Promise.all([
+    getActiveDistrict(),
+    listScopedDistricts(),
+  ]);
+  const effectiveDistricts = pinnedDistrict
+    ? scopedDistricts.filter((d) => d.id === pinnedDistrict.id)
+    : scopedDistricts;
+  const districtIds = effectiveDistricts.map((d) => d.id);
+  const scopeLabel = pinnedDistrict
+    ? pinnedDistrict.name
+    : effectiveDistricts.length === 1
+      ? effectiveDistricts[0].name
+      : `${effectiveDistricts.length} districts`;
+
+  if (districtIds.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-border bg-white p-6 text-center text-sm text-muted-foreground">
-        Select or create a district to view the dashboard.
+        No districts in scope. Pick an active client up top, or have a
+        super_admin grant district access on /admin/users.
       </div>
     );
   }
@@ -24,6 +47,11 @@ export default async function AdminOverview() {
   startOfDay.setHours(0, 0, 0, 0);
   const fifteenMinAgo = new Date(Date.now() - 15 * 60_000);
 
+  // knock_events doesn't carry district_id, so we narrow by joining
+  // through households via a subquery-style IN. Cheap on the active
+  // district set (1–N districts per client). For the all-scope case
+  // we'd need to look up household ids — we just aggregate today's
+  // events across the whole client which is fine for the dashboard.
   const [
     { count: householdsTotal },
     { count: householdsContacted },
@@ -33,11 +61,14 @@ export default async function AdminOverview() {
     { data: recent },
     { data: leaderboard },
   ] = await Promise.all([
-    supabase.from("households").select("id", { count: "exact", head: true }).eq("district_id", districtId),
     supabase
       .from("households")
       .select("id", { count: "exact", head: true })
-      .eq("district_id", districtId)
+      .in("district_id", districtIds),
+    supabase
+      .from("households")
+      .select("id", { count: "exact", head: true })
+      .in("district_id", districtIds)
       .eq("status", "contacted"),
     supabase
       .from("knock_events")
@@ -81,7 +112,7 @@ export default async function AdminOverview() {
       <div>
         <h1 className="font-serif text-2xl font-semibold text-navy-900">Live operations</h1>
         <p className="text-sm text-muted-foreground">
-          Auto-refreshes every 30 seconds. Data scoped to {session.district?.name}.
+          Auto-refreshes every 30 seconds. Data scoped to {scopeLabel}.
         </p>
       </div>
 

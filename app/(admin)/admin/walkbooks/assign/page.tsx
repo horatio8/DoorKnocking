@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { getActiveClient } from "@/lib/clients/active";
+import { getActiveDistrict, listScopedDistricts } from "@/lib/districts/active";
 import { AssignWalkbooksView } from "@/components/admin/assign-walkbooks";
 
 export const dynamic = "force-dynamic";
@@ -14,23 +15,24 @@ export default async function AssignWalkbooksPage() {
   }
 
   const supabase = getSupabaseServiceRoleClient();
-  const activeClient = await getActiveClient();
+  const [activeClient, pinnedDistrict, scopedDistricts] = await Promise.all([
+    getActiveClient(),
+    getActiveDistrict(),
+    listScopedDistricts(),
+  ]);
 
-  // Districts under active client. If no client in context, fall back to the
-  // user's default district (admin on their own subdomain).
-  const { data: districtRows } = activeClient
-    ? await supabase
-        .from("districts")
-        .select("id, name, slug")
-        .eq("client_id", activeClient.id)
-        .order("name")
-    : session.district?.id
-      ? await supabase.from("districts").select("id, name, slug").eq("id", session.district.id)
-      : { data: [] as Array<{ id: string; name: string; slug: string }> };
-  const districts = (districtRows ?? []) as Array<{ id: string; name: string; slug: string }>;
+  // Scope: pinned district (if any), otherwise everything in the
+  // active client / role-accessible scope. Drives which walkbooks
+  // appear under "unassigned" below.
+  const districts = (pinnedDistrict
+    ? scopedDistricts.filter((d) => d.id === pinnedDistrict.id)
+    : scopedDistricts
+  ).map((d) => ({ id: d.id, name: d.name, slug: d.slug }));
 
-  // Pick the first district as default target; UI has a switcher if >1.
-  const activeDistrictId = districts[0]?.id ?? null;
+  // Default target for the assignment UI. If a district is pinned use
+  // it; otherwise fall back to the first in-scope district. The UI
+  // exposes its own switcher when more than one is visible.
+  const activeDistrictId = pinnedDistrict?.id ?? districts[0]?.id ?? null;
 
   // Unassigned walkbooks (plus their stats).
   let walkbooks: Array<{

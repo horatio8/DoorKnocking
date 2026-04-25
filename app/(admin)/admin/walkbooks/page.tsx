@@ -3,6 +3,7 @@ import Link from "next/link";
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { getActiveClient } from "@/lib/clients/active";
+import { getActiveDistrict, listScopedDistricts } from "@/lib/districts/active";
 import { Badge } from "@/components/ui/badge";
 import { GenerateWalkbooksButton } from "@/components/admin/generate-walkbooks-button";
 import {
@@ -38,26 +39,21 @@ export default async function AdminWalkbooks({
     redirect("/app");
   }
   // Page is server-gated to admins; service-role client avoids any RLS
-  // edge-cases with the SSR anon client and is safe here.
+  // edge-cases with the SSR anon client and is safe here. Scope is
+  // driven by the global ClientSwitcher / DistrictSwitcher up top —
+  // listScopedDistricts() already respects role + active client +
+  // district_access[]; getActiveDistrict() narrows further when the
+  // admin has pinned one.
   const supabase = getSupabaseServiceRoleClient();
-  const activeClient = await getActiveClient();
-
-  // Load every district the active client owns — walkbooks get rolled up
-  // across all of them. Falls back to the user's default district if no
-  // client is in context (admin on their own subdomain, pre-switcher).
-  const { data: districtRows } = activeClient
-    ? await supabase
-        .from("districts")
-        .select("id, name, slug")
-        .eq("client_id", activeClient.id)
-        .order("name")
-    : session.district?.id
-      ? await supabase
-          .from("districts")
-          .select("id, name, slug")
-          .eq("id", session.district.id)
-      : { data: [] as Array<{ id: string; name: string; slug: string }> };
-  const districts = (districtRows ?? []) as Array<{ id: string; name: string; slug: string }>;
+  const [activeClient, activeDistrict, scopedDistricts] = await Promise.all([
+    getActiveClient(),
+    getActiveDistrict(),
+    listScopedDistricts(),
+  ]);
+  const districts = (activeDistrict
+    ? scopedDistricts.filter((d) => d.id === activeDistrict.id)
+    : scopedDistricts
+  ).map((d) => ({ id: d.id, name: d.name, slug: d.slug }));
   const districtIds = districts.map((d) => d.id);
   const districtNameById = new Map(districts.map((d) => [d.id, d.name]));
 
