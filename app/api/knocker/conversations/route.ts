@@ -52,12 +52,29 @@ export async function POST(req: Request) {
     }
     resolvedKnockId = (ke as { id: string }).id;
   } else {
-    // voice_notes.knock_event_id is NOT NULL — synthesise a minimal knock
-    // event so the conversation still attaches. Status = contacted by
-    // definition; survey_* stay null.
+    // No knock_event_id supplied — the volunteer hit "Record
+    // conversation" before picking a status, so we synthesise a
+    // minimal knock_events row first. voice_notes.knock_event_id
+    // is NOT NULL, and knock_events.household_id is NOT NULL too,
+    // so we have to look up the voter's household before inserting.
+    // Status = contacted by definition (the volunteer is actively
+    // recording a conversation with this voter); survey_* stay null.
+    const { data: voterRow, error: vErr } = await supabase
+      .from("voters")
+      .select("id, household_id")
+      .eq("id", voterId)
+      .maybeSingle();
+    const voter = voterRow as { id: string; household_id: string } | null;
+    if (vErr || !voter) {
+      return NextResponse.json(
+        { error: `voter ${voterId} not found` },
+        { status: 404 },
+      );
+    }
     const { data: ke, error: keErr } = await supabase
       .from("knock_events")
       .insert({
+        household_id: voter.household_id,
         voter_id: voterId,
         user_id: session.user.id,
         status: "contacted",
