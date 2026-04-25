@@ -33,25 +33,54 @@ export default async function SurveyPage({ params }: { params: { knockEventId: s
   // before we started preserving the id. Retry a few times with
   // back-off so replication lag doesn't send the volunteer to the
   // dead-end screen for transient misses.
+  //
+  // The `voters!voter_id` and `surveys!survey_id` hints disambiguate
+  // PostgREST embeds: knock_events has TWO foreign keys to voters
+  // (voter_id forward + the trigger-set last_knock_event_id reverse),
+  // and naked `voters(*)` returns HTTP 300 ambiguous-relationship
+  // — which we used to swallow as "row not found", dead-ending every
+  // contacted-status knock right after the trigger fired.
+  const SELECT_JOINED =
+    "*, voters!voter_id(*), surveys!survey_id(*, survey_questions(*))";
   let knock: KnockEventJoined | null = null;
   let attemptsTried = 0;
+  let lastEmbedError: string | null = null;
   for (const wait of LOOKUP_ATTEMPT_DELAYS_MS) {
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     attemptsTried += 1;
     const byId = await supabase
       .from("knock_events")
-      .select("*, voters(*), surveys(*, survey_questions(*))")
+      .select(SELECT_JOINED)
       .eq("id", params.knockEventId)
       .maybeSingle();
+    if (byId.error) {
+      lastEmbedError = byId.error.message;
+      console.error("[survey:runner-page] embed error on id lookup", {
+        knockEventId: params.knockEventId,
+        attempt: attemptsTried,
+        code: (byId.error as { code?: string }).code ?? null,
+        message: byId.error.message,
+        hint: (byId.error as { hint?: string }).hint ?? null,
+      });
+    }
     if (byId.data) {
       knock = byId.data as unknown as KnockEventJoined;
       break;
     }
     const byClientId = await supabase
       .from("knock_events")
-      .select("*, voters(*), surveys(*, survey_questions(*))")
+      .select(SELECT_JOINED)
       .eq("client_event_id", params.knockEventId)
       .maybeSingle();
+    if (byClientId.error) {
+      lastEmbedError = byClientId.error.message;
+      console.error("[survey:runner-page] embed error on client_event_id lookup", {
+        knockEventId: params.knockEventId,
+        attempt: attemptsTried,
+        code: (byClientId.error as { code?: string }).code ?? null,
+        message: byClientId.error.message,
+      });
+    }
     if (byClientId.data) {
       knock = byClientId.data as unknown as KnockEventJoined;
       break;
@@ -61,6 +90,7 @@ export default async function SurveyPage({ params }: { params: { knockEventId: s
       attempt: attemptsTried,
       waitedMs: wait,
       elapsedMs: Date.now() - startedAt,
+      hadEmbedError: Boolean(lastEmbedError),
     });
   }
   if (!knock) {
@@ -126,6 +156,11 @@ export default async function SurveyPage({ params }: { params: { knockEventId: s
             ? ` · your most recent synced knock is ref ${mostRecent[0].id} (${new Date(mostRecent[0].created_at).toISOString()})`
             : " · no recent knocks found for your account"}
         </p>
+        {lastEmbedError ? (
+          <p className="max-w-sm rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-900">
+            Embed error (visible row but join failed): {lastEmbedError}
+          </p>
+        ) : null}
         <div className="flex gap-2">
           <Link
             href={`/app/survey/${params.knockEventId}`}
