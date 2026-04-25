@@ -7,50 +7,124 @@ import { SurveyRunner } from "@/components/knocker/survey-runner";
 
 export const dynamic = "force-dynamic";
 
+// Server-side back-off for the case where the runner page renders a
+// few hundred ms before the knock_event row is visible to the next
+// read. Happens on cold Vercel nodes where the read hits a replica
+// that hasn't caught up, or when the POST + this render race on
+// different edge locations. Four attempts over ~3 seconds with
+// doubling waits covers the realistic lag window without stranding
+// the volunteer for long on genuine failures.
+const LOOKUP_ATTEMPT_DELAYS_MS = [0, 250, 750, 2000];
+
+interface KnockEventJoined extends KnockEvent {
+  voters: Voter | null;
+  surveys: (Survey & { survey_questions: SurveyQuestion[] }) | null;
+}
+
 export default async function SurveyPage({ params }: { params: { knockEventId: string } }) {
   const session = await loadSession();
   if (!session) redirect("/login");
   // Service-role client bypasses RLS so the volunteer's district_access
   // doesn't gate the lookup. The session check above is the auth guard.
   const supabase = getSupabaseServiceRoleClient();
+  const startedAt = Date.now();
 
-  // The URL segment is the client-generated UUID. After the recordKnock
-  // fix that's now stored as the row's `id` AND its `client_event_id`,
-  // so a lookup by `id` should always hit. Older rows from before the
-  // fix only have `client_event_id` matching, so try that as a fallback
-  // before declaring the knock missing.
-  let { data: knock } = await supabase
-    .from("knock_events")
-    .select("*, voters(*), surveys(*, survey_questions(*))")
-    .eq("id", params.knockEventId)
-    .maybeSingle();
-  if (!knock) {
-    const fallback = await supabase
+  // Look up by id first, then by client_event_id for rows inserted
+  // before we started preserving the id. Retry a few times with
+  // back-off so replication lag doesn't send the volunteer to the
+  // dead-end screen for transient misses.
+  let knock: KnockEventJoined | null = null;
+  let attemptsTried = 0;
+  for (const wait of LOOKUP_ATTEMPT_DELAYS_MS) {
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    attemptsTried += 1;
+    const byId = await supabase
+      .from("knock_events")
+      .select("*, voters(*), surveys(*, survey_questions(*))")
+      .eq("id", params.knockEventId)
+      .maybeSingle();
+    if (byId.data) {
+      knock = byId.data as unknown as KnockEventJoined;
+      break;
+    }
+    const byClientId = await supabase
       .from("knock_events")
       .select("*, voters(*), surveys(*, survey_questions(*))")
       .eq("client_event_id", params.knockEventId)
       .maybeSingle();
-    knock = fallback.data;
+    if (byClientId.data) {
+      knock = byClientId.data as unknown as KnockEventJoined;
+      break;
+    }
+    console.info("[survey:runner-page] lookup miss", {
+      knockEventId: params.knockEventId,
+      attempt: attemptsTried,
+      waitedMs: wait,
+      elapsedMs: Date.now() - startedAt,
+    });
   }
   if (!knock) {
-    console.warn("[survey:runner-page] knock event not found", {
+    // Best-effort "what do we know?" so the error page can show
+    // actionable info instead of a bare ref. We probe knock_events
+    // once with every search key we have; if the row genuinely
+    // doesn't exist the counts are all zero.
+    const [byIdProbe, byClientProbe, recentSameUser] = await Promise.all([
+      supabase
+        .from("knock_events")
+        .select("id", { count: "exact", head: true })
+        .eq("id", params.knockEventId),
+      supabase
+        .from("knock_events")
+        .select("id", { count: "exact", head: true })
+        .eq("client_event_id", params.knockEventId),
+      supabase
+        .from("knock_events")
+        .select("id, client_event_id, created_at")
+        .eq("user_id", session.user.id)
+        .order("created_at", { ascending: false })
+        .limit(3),
+    ]);
+    const mostRecent =
+      (recentSameUser.data ?? []) as Array<{
+        id: string;
+        client_event_id: string | null;
+        created_at: string;
+      }>;
+    console.warn("[survey:runner-page] knock event not found after retries", {
       knockEventId: params.knockEventId,
       userId: session.user.id,
+      attempts: attemptsTried,
+      totalWaitMs: Date.now() - startedAt,
+      byIdMatchCount: byIdProbe.count ?? 0,
+      byClientEventIdMatchCount: byClientProbe.count ?? 0,
+      mostRecentForUser: mostRecent.map((r) => ({
+        id: r.id,
+        clientEventId: r.client_event_id,
+        createdAt: r.created_at,
+      })),
     });
-    // The knock genuinely isn't there — likely the outbox flush hasn't
-    // landed yet (volunteer was offline, or sync failed silently). Give
-    // them a useful path forward instead of a bare 404.
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
         <h1 className="font-serif text-xl font-semibold text-navy-900">
           Couldn&rsquo;t find that knock
         </h1>
         <p className="max-w-sm text-sm text-muted-foreground">
-          The knock you&rsquo;re trying to survey hasn&rsquo;t synced to the server yet, or
-          something else went wrong. Wait a few seconds and reload, or head back to the map.
+          The server doesn&rsquo;t have a record of this knock even after {attemptsTried} checks.
+          Usually that means the save was blocked before it reached the server — head back
+          and the door screen will show the exact reason when you try again.
         </p>
         <p className="font-mono text-[10px] text-muted-foreground">
           ref: {params.knockEventId}
+        </p>
+        <p className="max-w-sm text-[11px] text-muted-foreground">
+          Debug: checked {attemptsTried} times over {Date.now() - startedAt}ms ·
+          {" "}
+          id matches: {byIdProbe.count ?? 0}
+          {" · "}
+          client_event_id matches: {byClientProbe.count ?? 0}
+          {mostRecent[0]
+            ? ` · your most recent synced knock is ref ${mostRecent[0].id} (${new Date(mostRecent[0].created_at).toISOString()})`
+            : " · no recent knocks found for your account"}
         </p>
         <div className="flex gap-2">
           <Link
@@ -69,10 +143,7 @@ export default async function SurveyPage({ params }: { params: { knockEventId: s
       </div>
     );
   }
-  const event = knock as KnockEvent & {
-    voters: Voter | null;
-    surveys: (Survey & { survey_questions: SurveyQuestion[] }) | null;
-  };
+  const event = knock;
   if (!event.surveys || !event.voters) {
     console.warn("[survey:runner-page] event found but join missing", {
       knockEventId: params.knockEventId,
