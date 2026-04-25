@@ -98,6 +98,15 @@ export function MapView({
   const focusWalkbookId = incomingWalkbookId;
   const scopedWalkbookId = selectedWalkbookId ?? focusWalkbookId;
   const [position, setPosition] = useState<{ lat: number; lng: number } | null>(null);
+  // Re-anchor the map to the GPS dot on every position update. Turns
+  // off when the user pans manually so they can explore, and flips
+  // back on when they tap the recenter button (or focus/walkbook
+  // scoping clears).
+  const [followGps, setFollowGps] = useState(true);
+  // First GPS fix should ease to a comfortable street-level zoom even
+  // if the map opened pinned to the district bbox. After that we keep
+  // the user's chosen zoom on subsequent recenters.
+  const hasCenteredOnGpsRef = useRef(false);
 
   const hydrate = useFieldStore((s) => s.hydrate);
   const households = useFieldStore((s) => s.households);
@@ -266,6 +275,14 @@ export function MapView({
     });
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), "top-right");
     map.on("load", () => {
+      // GPS source — fed by the watchPosition effect. Two layers so the
+      // dot has a soft halo behind it (matches Apple/Google maps style).
+      // Sits above households + walkbook lines so it's never occluded.
+      map.addSource("gps", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+
       map.addSource("wb-lines", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
@@ -335,6 +352,28 @@ export function MapView({
         },
       });
 
+      map.addLayer({
+        id: "gps-halo",
+        type: "circle",
+        source: "gps",
+        paint: {
+          "circle-color": "#1d6fe0",
+          "circle-radius": 18,
+          "circle-opacity": 0.18,
+        },
+      });
+      map.addLayer({
+        id: "gps-dot",
+        type: "circle",
+        source: "gps",
+        paint: {
+          "circle-color": "#1d6fe0",
+          "circle-radius": 6,
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": 2,
+        },
+      });
+
       map.on("click", "household-points", (e) => {
         const id = (e.features?.[0]?.properties as { id?: string } | undefined)?.id;
         if (id) router.push(`/app/household/${id}`);
@@ -362,6 +401,60 @@ export function MapView({
     if (map.isStyleLoaded()) apply();
     else map.once("load", apply);
   }, [householdFC, walkbookLinesFC, walkbookPinsFC]);
+
+  // GPS dot + auto-recenter. Runs on every watchPosition update.
+  // - Updates the gps source so the blue dot tracks the user.
+  // - When followGps is on, eases the map to the new position. The
+  //   first fix zooms in to street-level (z=16); later fixes preserve
+  //   whatever zoom the user is on.
+  // - Suppressed when a walkbook or single household is explicitly
+  //   focused (scopedWalkbookId / focusHouseholdId) — those are
+  //   user-driven focus actions we shouldn't fight.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !position) return;
+    const apply = () => {
+      (map.getSource("gps") as GeoJSONSource | undefined)?.setData({
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            properties: {},
+            geometry: { type: "Point", coordinates: [position.lng, position.lat] },
+          },
+        ],
+      });
+      if (!followGps) return;
+      if (scopedWalkbookId || focusHouseholdId) return;
+      const opts: Parameters<mapboxgl.Map["easeTo"]>[0] = {
+        center: [position.lng, position.lat],
+        duration: 600,
+      };
+      if (!hasCenteredOnGpsRef.current) {
+        opts.zoom = Math.max(map.getZoom(), 16);
+        hasCenteredOnGpsRef.current = true;
+      }
+      map.easeTo(opts);
+    };
+    if (map.isStyleLoaded()) apply();
+    else map.once("load", apply);
+  }, [position, followGps, scopedWalkbookId, focusHouseholdId]);
+
+  // Manual pan disables follow so the user can look around without the
+  // next GPS tick yanking them back. The recenter button below flips
+  // it back on. We only flip on user-initiated drags (originalEvent
+  // present) — programmatic easeTo doesn't carry one.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const onDrag = (e: { originalEvent?: Event }) => {
+      if (e.originalEvent) setFollowGps(false);
+    };
+    map.on("dragstart", onDrag);
+    return () => {
+      map.off("dragstart", onDrag);
+    };
+  }, []);
 
   // Tapping a pin or a route line selects the walkbook. Both sources are
   // native Mapbox layers now — no DOM markers — so positioning is
@@ -551,6 +644,35 @@ export function MapView({
           </div>
         ) : null}
       </div>
+
+      {/* Recenter-on-me button. Always shown when GPS is available so
+          the user can re-anchor after a manual pan / focus action.
+          Disabled-looking but still tappable when follow is already on
+          (a tap re-centres immediately even if follow never drifted). */}
+      {position ? (
+        <button
+          type="button"
+          onClick={() => {
+            const map = mapRef.current;
+            if (!map) return;
+            setFollowGps(true);
+            map.easeTo({
+              center: [position.lng, position.lat],
+              zoom: Math.max(map.getZoom(), 16),
+              duration: 500,
+            });
+          }}
+          aria-label="Recentre on my location"
+          className={`absolute bottom-28 right-3 z-10 flex h-11 w-11 items-center justify-center rounded-full border shadow-lg backdrop-blur ${
+            followGps
+              ? "border-transparent bg-navy-900 text-white"
+              : "border-navy-100 bg-white/95 text-navy-900"
+          }`}
+          title={followGps ? "Following your location" : "Recentre on me"}
+        >
+          <Navigation className="h-4 w-4" />
+        </button>
+      ) : null}
 
       {!selectedWalkbook ? (
         <>
