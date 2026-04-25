@@ -115,6 +115,33 @@ export default async function HouseholdPage({ params }: { params: { id: string }
     resolvedSurveyId = ((districtActive ?? []) as Array<{ id: string }>)[0]?.id ?? null;
   }
 
+  // Fallback: if no active survey is live yet, pick the newest
+  // draft that has at least one question. Volunteers should never
+  // hit a "no survey" dead end just because the admin hasn't hit
+  // Publish — we surface the draft + a "not yet published" banner
+  // downstream so the admin still knows to finish setup. Empty
+  // drafts are skipped because they'd give the survey runner
+  // nothing to render.
+  if (!resolvedSurveyId) {
+    const { data: draftRows } = await supabase
+      .from("surveys")
+      .select("id, survey_questions(count)")
+      .eq("district_id", hh.district_id)
+      .eq("status", "draft")
+      .order("updated_at", { ascending: false });
+    const drafts = (draftRows ?? []) as Array<{
+      id: string;
+      survey_questions: Array<{ count: number }> | { count: number } | null;
+    }>;
+    const candidate = drafts.find((d) => {
+      const qc = Array.isArray(d.survey_questions)
+        ? d.survey_questions[0]?.count ?? 0
+        : (d.survey_questions?.count ?? 0);
+      return qc > 0;
+    });
+    if (candidate) resolvedSurveyId = candidate.id;
+  }
+
   const [{ data: voters }, { data: recentKnocks }, { data: surveyRow }, { data: standardTags }] =
     await Promise.all([
       supabase

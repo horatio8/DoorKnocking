@@ -180,6 +180,8 @@ export interface KnockEvent {
   created_at: string;
 }
 
+export type SurveyStatus = "draft" | "active" | "paused" | "archived";
+
 export interface Survey {
   id: string;
   district_id: string;
@@ -187,6 +189,7 @@ export interface Survey {
   name: string;
   description: string | null;
   active: boolean;
+  status: SurveyStatus;
   visibility: SurveyVisibility;
   priority: number;
   created_at: string;

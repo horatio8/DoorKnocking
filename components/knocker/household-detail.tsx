@@ -332,6 +332,13 @@ export function HouseholdDetail({
                     knock will still be logged.
                   </p>
                 ) : null}
+                {activeStatus === "contacted" && survey && survey.status !== "active" ? (
+                  <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+                    Using a {survey.status} survey because nothing has been published yet — your
+                    answers still save. Tell your admin to publish &ldquo;{survey.name}&rdquo; in
+                    /admin/surveys for the official version.
+                  </p>
+                ) : null}
                 {submitError ? (
                   <p className="mt-4 rounded-md border border-crimson/30 bg-crimson/10 px-3 py-2 text-[12px] text-crimson">
                     {submitError}
