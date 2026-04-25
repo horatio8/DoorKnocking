@@ -18,9 +18,11 @@ import {
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { ClientSwitcher } from "@/components/admin/client-switcher";
+import { DistrictSwitcher } from "@/components/admin/district-switcher";
 import { GlobalSearch } from "@/components/admin/global-search";
 import { LogoutButton } from "@/components/knocker/logout-button";
 import { getActiveClient } from "@/lib/clients/active";
+import { getActiveDistrict, listScopedDistricts } from "@/lib/districts/active";
 import { AdminBillingStatus } from "@/components/admin/admin-billing-status";
 import { getBillingState } from "@/lib/billing/trial";
 
@@ -77,6 +79,15 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const { data: clientsData } = await clientsQuery;
   const clients = (clientsData ?? []) as Array<{ id: string; name: string; slug: string }>;
 
+  // Districts visible in the current client scope, plus the active
+  // district pin. getActiveDistrict() drops the cookie if the saved
+  // district doesn't belong to the active client, so this stays
+  // consistent when the admin switches client.
+  const [activeDistrict, scopedDistricts] = await Promise.all([
+    getActiveDistrict(),
+    listScopedDistricts(),
+  ]);
+
   const nav = [...NAV, ...(session.user.role === "super_admin" ? SUPER_NAV : [])];
   const brandLabel = client?.name ?? "Campaign OS";
 
@@ -131,6 +142,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             <div>
               <p className="text-[10px] uppercase tracking-[0.14em] text-mute">Client</p>
               <ClientSwitcher activeClientId={client?.id ?? null} clients={clients} />
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.14em] text-mute">District</p>
+              <DistrictSwitcher
+                activeDistrictId={activeDistrict?.id ?? null}
+                districts={scopedDistricts.map((d) => ({ id: d.id, name: d.name }))}
+              />
             </div>
             <GlobalSearch />
           </div>
