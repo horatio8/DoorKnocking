@@ -235,8 +235,17 @@ export async function runImport({
     idByKey.set((r as { airtable_hh_rec_id: string }).airtable_hh_rec_id, (r as { id: string }).id);
   }
 
-  // Upsert voters
-  const voterRows = voters
+  // Upsert voters. Dedupe by airtable_voter_key first — Postgres
+  // rejects an UPSERT batch where two rows share the same conflict
+  // target ("ON CONFLICT DO UPDATE command cannot affect row a
+  // second time"). That happened on the District 115 import: the
+  // canonical Airtable base had duplicate voter records left over
+  // from a push that ran before the push-side dedupe shipped, so
+  // runImport pulled them back and the batched upsert blew up.
+  // Last write wins — matches the same pattern in pushFromFile.
+  const voterByKey = new Map<string, ReturnType<typeof mapRecord>["voter"] & { householdRecId: string }>();
+  for (const v of voters) voterByKey.set(v.airtable_voter_key, v);
+  const voterRows = Array.from(voterByKey.values())
     .map((v) => {
       const householdId = idByKey.get(v.householdRecId);
       if (!householdId) return null;
