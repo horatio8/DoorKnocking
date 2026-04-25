@@ -40,10 +40,13 @@ export function ConversationRecorder({
 
   async function start() {
     setError(null);
-    if (!hasConsent) {
-      setError("You haven't granted voice-note consent yet — enable it from your profile.");
-      return;
-    }
+    // The OS-level mic permission prompt that fires from
+    // getUserMedia is the real consent gate — no need to also gate
+    // on the soft `voice_note_consent` flag. If the volunteer
+    // declines the OS prompt, getUserMedia rejects and we surface
+    // that error directly. The `hasConsent` prop is kept for
+    // backwards compat with callers that still pass it (we just
+    // no longer block on it).
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const rec = new MediaRecorder(stream);
@@ -161,11 +164,6 @@ export function ConversationRecorder({
         <p className="mt-3 rounded bg-crimson/10 px-3 py-2 text-xs text-crimson">{error}</p>
       ) : null}
 
-      {!hasConsent ? (
-        <p className="mt-3 rounded border border-dashed border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-900">
-          You haven&rsquo;t enabled voice-note recording yet. Turn it on from your profile first.
-        </p>
-      ) : null}
     </div>
   );
 }

@@ -18,9 +18,10 @@ const BUCKET = "conversation-recordings";
 export async function POST(req: Request) {
   const session = await loadSession();
   if (!session) return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  if (!session.user.voice_note_consent) {
-    return NextResponse.json({ error: "voice-note consent required" }, { status: 403 });
-  }
+  // No software-side voice_note_consent check: the OS-level mic
+  // permission prompt that fires from getUserMedia is the real
+  // consent gate. The flag still lives on the user row for admin
+  // visibility / opt-out, but it doesn't block the upload.
 
   const form = await req.formData().catch(() => null);
   if (!form) return NextResponse.json({ error: "multipart/form-data required" }, { status: 400 });
