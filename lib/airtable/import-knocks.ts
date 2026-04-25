@@ -105,7 +105,21 @@ export interface ImportKnocksResult {
   skippedNoVoter: number;
   failed: number;
   errors: string[];
+  // Top distinct status values that didn't normalise, with row
+  // counts. Surfaced in import_jobs.error_detail so the admin can
+  // see *what* their CSV had instead of guessing — e.g.
+  //   [{value: "Knocked", count: 156}, {value: "Not Home", count: 42}]
+  // tells them exactly which aliases to add (or which CSV values
+  // to rewrite). Capped to keep the JSON small.
+  unknownStatusSamples: Array<{ value: string; count: number }>;
+  // Voter keys that had a recognised status but couldn't be matched
+  // to a Supabase voter row (probably means the airtable_voter_key
+  // mapping is wrong, or the voter wasn't in the same CSV). First
+  // 20 only.
+  unmatchedVoterKeySamples: string[];
 }
+
+const SAMPLE_CAP = 20;
 
 export async function importKnocksFromRows(
   args: ImportKnocksArgs,
@@ -118,7 +132,11 @@ export async function importKnocksFromRows(
     skippedNoVoter: 0,
     failed: 0,
     errors: [],
+    unknownStatusSamples: [],
+    unmatchedVoterKeySamples: [],
   };
+  const unknownCounts = new Map<string, number>();
+  const unmatchedKeys: string[] = [];
 
   const statusCol = args.mapping["knock_status"];
   if (!statusCol) {
@@ -161,6 +179,12 @@ export async function importKnocksFromRows(
     const status = normaliseStatus(rawStatus);
     if (!status) {
       result.skippedUnknownStatus++;
+      // Track distinct unknown values so the admin sees exactly
+      // which strings their CSV used. Trim + lowercase the key to
+      // group "knocked" / "Knocked" / " knocked " together; preserve
+      // the raw value as a sample so it reads naturally.
+      const key = rawStatus.trim().toLowerCase();
+      unknownCounts.set(key, (unknownCounts.get(key) ?? 0) + 1);
       continue;
     }
     const knockedAt = normaliseKnockedAt(
@@ -175,7 +199,14 @@ export async function importKnocksFromRows(
     pending.push({ voterKey, status, knockedAt, knockerEmail, notes: notes || null });
   }
   result.attempted = pending.length;
-  if (pending.length === 0) return result;
+  // Materialise samples now even if we early-return: an admin who
+  // mapped knock_status to a column that's entirely unrecognised
+  // values needs to see those values to fix the next upload.
+  result.unknownStatusSamples = topSamples(unknownCounts);
+  if (pending.length === 0) {
+    result.unmatchedVoterKeySamples = unmatchedKeys.slice(0, SAMPLE_CAP);
+    return result;
+  }
 
   // Resolve voter id + household id by airtable_voter_key in one
   // shot. This relies on runImport having already upserted the
@@ -221,6 +252,7 @@ export async function importKnocksFromRows(
     const voter = voterByKey.get(p.voterKey);
     if (!voter) {
       result.skippedNoVoter++;
+      if (unmatchedKeys.length < SAMPLE_CAP) unmatchedKeys.push(p.voterKey);
       continue;
     }
     const knockerId =
@@ -270,10 +302,24 @@ export async function importKnocksFromRows(
     }
     result.inserted += data?.length ?? batch.length;
   }
+  result.unmatchedVoterKeySamples = unmatchedKeys.slice(0, SAMPLE_CAP);
   console.info("[csv:import-knocks] done", {
     importFileId: args.importFileId,
     districtId: args.districtId,
     ...result,
   });
   return result;
+}
+
+// Top-N entries from a value→count map, sorted by count desc, ties
+// broken alphabetically. Lets the admin see "Knocked: 156, Not Home:
+// 42, Refused: 15…" and act on the long tail without us shipping
+// kilobytes of jsonb in the import_jobs row.
+function topSamples(
+  counts: Map<string, number>,
+): Array<{ value: string; count: number }> {
+  return Array.from(counts.entries())
+    .map(([value, count]) => ({ value, count }))
+    .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
+    .slice(0, SAMPLE_CAP);
 }

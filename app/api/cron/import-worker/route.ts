@@ -144,7 +144,10 @@ export async function GET(req: Request) {
             // the import_jobs row's error_detail so the admin can
             // see counts in /admin/system/jobs without us minting
             // new columns. Job is still 'imported'; this just
-            // surfaces the side-effect counts.
+            // surfaces the side-effect counts plus the *actual*
+            // unrecognised values + unmatched keys, so the admin
+            // can read which CSV strings were skipped and either
+            // add aliases or rewrite the source data.
             await patchImportJob(supabase, job.id, {
               error_detail: {
                 knocks_attempted: evt.result.attempted,
@@ -154,6 +157,8 @@ export async function GET(req: Request) {
                 knocks_skipped_no_voter: evt.result.skippedNoVoter,
                 knocks_failed: evt.result.failed,
                 knocks_errors: evt.result.errors.slice(0, 10),
+                knocks_unknown_status_samples: evt.result.unknownStatusSamples,
+                knocks_unmatched_voter_keys: evt.result.unmatchedVoterKeySamples,
               },
             });
             return;

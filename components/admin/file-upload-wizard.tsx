@@ -58,6 +58,8 @@ interface ImportJobSnapshot {
     knocks_skipped_no_voter?: number;
     knocks_failed?: number;
     knocks_errors?: string[];
+    knocks_unknown_status_samples?: Array<{ value: string; count: number }>;
+    knocks_unmatched_voter_keys?: string[];
   } | null;
 }
 
@@ -389,9 +391,82 @@ export function AirtableFileUploadWizard({ districtId, districtName, hasCanonica
       ) : null}
 
       {step === "done" ? (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
-          <p className="font-medium">Import complete.</p>
-          {pushSummary ? <p className="mt-1 text-xs">{pushSummary}</p> : null}
+        <div className="space-y-3">
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+            <p className="font-medium">Import complete.</p>
+            {pushSummary ? <p className="mt-1 text-xs">{pushSummary}</p> : null}
+          </div>
+
+          {/* Surface the *actual* unrecognised status values + counts
+              so the admin sees exactly which CSV strings were skipped.
+              Without this they'd have to open the CSV and guess. */}
+          {jobStatus?.error_detail?.knocks_unknown_status_samples &&
+          jobStatus.error_detail.knocks_unknown_status_samples.length > 0 ? (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+              <p className="font-medium">
+                {jobStatus.error_detail.knocks_skipped_unknown_status ??
+                  jobStatus.error_detail.knocks_unknown_status_samples.reduce(
+                    (n, s) => n + s.count,
+                    0,
+                  )}{" "}
+                rows had a status value the importer didn&rsquo;t recognise.
+              </p>
+              <p className="mt-1 text-xs">
+                These values appeared in your CSV but didn&rsquo;t match any of the supported
+                statuses (contacted, no_answer, come_back_later, refused, wrong_address). Either
+                rewrite the values in the source file, or paste this list to the dev team to add
+                as aliases:
+              </p>
+              <ul className="mt-2 space-y-0.5 font-mono text-[11px]">
+                {jobStatus.error_detail.knocks_unknown_status_samples.map((s) => (
+                  <li key={s.value}>
+                    <span className="rounded bg-white/60 px-1.5 py-0.5">&ldquo;{s.value}&rdquo;</span>
+                    <span className="ml-2 text-amber-700">{s.count} row{s.count === 1 ? "" : "s"}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {/* Same shape for unmatched voter keys — the admin sees
+              which voter_key values had a status but couldn't be
+              resolved to a Supabase voter (usually means the
+              airtable_voter_key column was mapped wrong). */}
+          {jobStatus?.error_detail?.knocks_unmatched_voter_keys &&
+          jobStatus.error_detail.knocks_unmatched_voter_keys.length > 0 ? (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+              <p className="font-medium">
+                {jobStatus.error_detail.knocks_skipped_no_voter ??
+                  jobStatus.error_detail.knocks_unmatched_voter_keys.length}{" "}
+                knock rows couldn&rsquo;t match a voter.
+              </p>
+              <p className="mt-1 text-xs">
+                Sample voter_key values that didn&rsquo;t resolve. If these don&rsquo;t look like
+                your CSV&rsquo;s VoterKey column, the airtable_voter_key mapping is probably
+                wrong.
+              </p>
+              <ul className="mt-2 space-y-0.5 font-mono text-[11px]">
+                {jobStatus.error_detail.knocks_unmatched_voter_keys.map((v) => (
+                  <li key={v}>
+                    <span className="rounded bg-white/60 px-1.5 py-0.5">{v}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {/* Other non-fatal issues. */}
+          {jobStatus?.error_detail?.knocks_errors &&
+          jobStatus.error_detail.knocks_errors.length > 0 ? (
+            <div className="rounded-lg border border-crimson/30 bg-crimson/10 p-4 text-sm text-crimson">
+              <p className="font-medium">First {jobStatus.error_detail.knocks_errors.length} knock errors:</p>
+              <ul className="mt-2 space-y-0.5 font-mono text-[11px]">
+                {jobStatus.error_detail.knocks_errors.map((e, i) => (
+                  <li key={i}>{e}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

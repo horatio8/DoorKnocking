@@ -20,6 +20,20 @@ interface JobRow {
   rows_geocoded: number;
   rows_failed: number;
   error_message: string | null;
+  // Knock-import side-effect counts + samples written by the worker
+  // (see app/api/cron/import-worker/route.ts knocks_imported branch).
+  // Optional — older jobs predating the knock-import path don't have it.
+  error_detail: {
+    knocks_attempted?: number;
+    knocks_inserted?: number;
+    knocks_skipped_no_status?: number;
+    knocks_skipped_unknown_status?: number;
+    knocks_skipped_no_voter?: number;
+    knocks_failed?: number;
+    knocks_errors?: string[];
+    knocks_unknown_status_samples?: Array<{ value: string; count: number }>;
+    knocks_unmatched_voter_keys?: string[];
+  } | null;
   started_at: string | null;
   finished_at: string | null;
   created_at: string;
@@ -133,6 +147,71 @@ export function ImportJobsLive({
               <p className="rounded bg-crimson/10 px-2 py-1 text-[11px] text-crimson">
                 {job.error_message}
               </p>
+            ) : null}
+
+            {/* Knock-import side-effect summary. Folded into a
+                <details> so the admin can drill in only when there's
+                something to see; otherwise it stays out of the way. */}
+            {job.error_detail &&
+            (typeof job.error_detail.knocks_inserted === "number" ||
+              typeof job.error_detail.knocks_skipped_unknown_status === "number") ? (
+              <details className="rounded border border-border/70 bg-navy-50/40 p-2 text-[11px] open:bg-navy-50/60">
+                <summary className="cursor-pointer text-navy-800">
+                  Knock-history side-step:{" "}
+                  <span className="font-medium">
+                    {(job.error_detail.knocks_inserted ?? 0).toLocaleString()} applied
+                  </span>
+                  {(job.error_detail.knocks_skipped_unknown_status ?? 0) > 0
+                    ? ` · ${(job.error_detail.knocks_skipped_unknown_status ?? 0).toLocaleString()} unrecognised`
+                    : ""}
+                  {(job.error_detail.knocks_skipped_no_voter ?? 0) > 0
+                    ? ` · ${(job.error_detail.knocks_skipped_no_voter ?? 0).toLocaleString()} unmatched voter`
+                    : ""}
+                </summary>
+                <div className="mt-2 space-y-2">
+                  {job.error_detail.knocks_unknown_status_samples &&
+                  job.error_detail.knocks_unknown_status_samples.length > 0 ? (
+                    <div>
+                      <p className="font-semibold text-navy-700">
+                        Unrecognised status values (top {job.error_detail.knocks_unknown_status_samples.length})
+                      </p>
+                      <ul className="mt-1 space-y-0.5 font-mono">
+                        {job.error_detail.knocks_unknown_status_samples.map((s) => (
+                          <li key={s.value}>
+                            <span className="rounded bg-white/70 px-1.5 py-0.5">&ldquo;{s.value}&rdquo;</span>
+                            <span className="ml-2 text-navy-600">{s.count.toLocaleString()}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {job.error_detail.knocks_unmatched_voter_keys &&
+                  job.error_detail.knocks_unmatched_voter_keys.length > 0 ? (
+                    <div>
+                      <p className="font-semibold text-navy-700">
+                        Sample unmatched voter keys ({job.error_detail.knocks_unmatched_voter_keys.length})
+                      </p>
+                      <ul className="mt-1 space-y-0.5 font-mono">
+                        {job.error_detail.knocks_unmatched_voter_keys.map((k) => (
+                          <li key={k}>
+                            <span className="rounded bg-white/70 px-1.5 py-0.5">{k}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {job.error_detail.knocks_errors && job.error_detail.knocks_errors.length > 0 ? (
+                    <div>
+                      <p className="font-semibold text-crimson">First {job.error_detail.knocks_errors.length} errors</p>
+                      <ul className="mt-1 space-y-0.5 font-mono text-crimson">
+                        {job.error_detail.knocks_errors.map((e, i) => (
+                          <li key={i}>{e}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              </details>
             ) : null}
           </li>
         );

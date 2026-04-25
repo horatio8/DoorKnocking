@@ -51,7 +51,7 @@ export default async function BackgroundJobsPage() {
     supabase
       .from("import_jobs")
       .select(
-        "id, district_id, status, rows_total, rows_pushed, rows_imported, rows_geocoded, rows_failed, error_message, started_at, finished_at, created_at",
+        "id, district_id, status, rows_total, rows_pushed, rows_imported, rows_geocoded, rows_failed, error_message, error_detail, started_at, finished_at, created_at",
       )
       .order("created_at", { ascending: false })
       .limit(15),
@@ -78,6 +78,7 @@ export default async function BackgroundJobsPage() {
       rows_geocoded: number;
       rows_failed: number;
       error_message: string | null;
+      error_detail: Record<string, unknown> | null;
       started_at: string | null;
       finished_at: string | null;
       created_at: string;
