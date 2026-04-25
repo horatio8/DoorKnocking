@@ -123,6 +123,14 @@ export function HouseholdDetail({
     // are captured by the surrounding UI without the runner.
     const shouldLaunchSurvey =
       activeStatus === "contacted" && selectedSurvey !== null;
+    console.info("[survey:commit] handleCommit", {
+      householdId: household.id,
+      voterId: selectedVoter.id,
+      status: knockStatus,
+      availableCount: availableSurveys.length,
+      selectedSurveyId: selectedSurvey?.id ?? null,
+      shouldLaunchSurvey,
+    });
     try {
       const event = await recordKnock({
         household,
@@ -132,6 +140,10 @@ export function HouseholdDetail({
         surveyId: shouldLaunchSurvey ? selectedSurvey?.id ?? null : null,
         notes: notes.trim() || undefined,
       });
+      console.info("[survey:commit] recordKnock returned", {
+        eventId: event.id,
+        surveyId: event.survey_id,
+      });
       if (shouldLaunchSurvey) {
         router.push(`/app/survey/${event.id}`);
       } else {
@@ -139,6 +151,7 @@ export function HouseholdDetail({
         router.refresh();
       }
     } catch (err) {
+      console.error("[survey:commit] recordKnock failed", err);
       setSubmitError((err as Error).message || "Could not save knock — try again.");
     } finally {
       setSubmitting(false);

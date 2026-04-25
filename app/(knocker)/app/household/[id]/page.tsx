@@ -92,6 +92,15 @@ export default async function HouseholdPage({ params }: { params: { id: string }
     chosenSurveyId: open?.chosen_survey_id ?? null,
     walkbookId: open?.walkbook_id ?? null,
   });
+  console.info("[survey:household-page] resolved", {
+    householdId: hh.id,
+    districtId: hh.district_id,
+    userId: session.user.id,
+    chosenSurveyId: open?.chosen_survey_id ?? null,
+    walkbookId: open?.walkbook_id ?? null,
+    availableCount: availableSurveys.length,
+    surveyIds: availableSurveys.map((s) => s.id),
+  });
 
   const [{ data: voters }, { data: recentKnocks }, { data: standardTags }] = await Promise.all([
     supabase

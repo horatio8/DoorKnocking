@@ -154,11 +154,30 @@ export const useFieldStore = create<FieldState>((set, get) => ({
     // local event is already in the store either way.
     if (typeof navigator !== "undefined" && navigator.onLine) {
       try {
-        await flushOutbox();
+        const result = await flushOutbox();
         await get().refreshPendingCount();
+        console.info("[survey:record-knock] outbox flushed", {
+          knockEventId: clientEventId,
+          surveyId,
+          ...result,
+        });
+        if (result.failed > 0) {
+          console.warn(
+            "[survey:record-knock] flush left failures — survey runner may show 'Couldn't find that knock'",
+            { knockEventId: clientEventId, failed: result.failed },
+          );
+        }
       } catch (err) {
-        console.warn("[recordKnock] immediate flush failed; will retry via worker", err);
+        console.warn(
+          "[survey:record-knock] immediate flush failed; will retry via worker",
+          { knockEventId: clientEventId, error: (err as Error).message },
+        );
       }
+    } else {
+      console.info("[survey:record-knock] offline at commit; queued in outbox", {
+        knockEventId: clientEventId,
+        surveyId,
+      });
     }
     return event;
   },

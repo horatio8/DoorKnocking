@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { v4 as uuid } from "uuid";
 import { enqueue } from "@/lib/offline/db";
@@ -13,6 +13,10 @@ interface Props {
   survey: Survey & { survey_questions: SurveyQuestion[] };
   initialAnswers?: Record<string, unknown>;
 }
+
+// One-shot client-side log on mount so failures past this point are
+// distinguishable from server-side resolver / runner-page failures
+// (which log under [survey:resolver] and [survey:runner-page]).
 
 type Answer = string | string[] | number | boolean | null;
 
@@ -36,6 +40,16 @@ export function SurveyRunner({ knockEventId, voter, survey, initialAnswers }: Pr
   });
   const [answers, setAnswers] = useState<Record<string, Answer>>(seeded);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    console.info("[survey:runner] mounted", {
+      knockEventId,
+      surveyId: survey.id,
+      surveyName: survey.name,
+      questionCount: questions.length,
+      seededAnswers: Object.keys(seeded).length,
+    });
+  }, [knockEventId, survey.id, survey.name, questions.length, seeded]);
 
   const current = questions[index];
   const total = questions.length;

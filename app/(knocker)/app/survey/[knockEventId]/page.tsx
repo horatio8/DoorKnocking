@@ -33,6 +33,10 @@ export default async function SurveyPage({ params }: { params: { knockEventId: s
     knock = fallback.data;
   }
   if (!knock) {
+    console.warn("[survey:runner-page] knock event not found", {
+      knockEventId: params.knockEventId,
+      userId: session.user.id,
+    });
     // The knock genuinely isn't there — likely the outbox flush hasn't
     // landed yet (volunteer was offline, or sync failed silently). Give
     // them a useful path forward instead of a bare 404.
@@ -70,6 +74,14 @@ export default async function SurveyPage({ params }: { params: { knockEventId: s
     surveys: (Survey & { survey_questions: SurveyQuestion[] }) | null;
   };
   if (!event.surveys || !event.voters) {
+    console.warn("[survey:runner-page] event found but join missing", {
+      knockEventId: params.knockEventId,
+      eventId: event.id,
+      hasSurveys: Boolean(event.surveys),
+      hasVoter: Boolean(event.voters),
+      surveyId: (event as { survey_id?: string | null }).survey_id ?? null,
+      voterId: (event as { voter_id?: string | null }).voter_id ?? null,
+    });
     // Silent-redirect used to strand the volunteer with no explanation;
     // a proper empty state is less confusing.
     return (
@@ -101,6 +113,15 @@ export default async function SurveyPage({ params }: { params: { knockEventId: s
   for (const r of (prior ?? []) as Array<{ question_id: string; answer: unknown }>) {
     initialAnswers[r.question_id] = r.answer;
   }
+
+  console.info("[survey:runner-page] rendering runner", {
+    knockEventId: params.knockEventId,
+    eventId: event.id,
+    surveyId: event.surveys.id,
+    surveyStatus: (event.surveys as { status?: string }).status ?? null,
+    questionCount: event.surveys.survey_questions?.length ?? 0,
+    priorAnswerCount: Object.keys(initialAnswers).length,
+  });
 
   return (
     <SurveyRunner

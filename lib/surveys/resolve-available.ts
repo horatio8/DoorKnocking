@@ -60,6 +60,15 @@ function hasQuestions(s: RawSurvey): boolean {
   return Array.isArray(s.survey_questions) && s.survey_questions.length > 0;
 }
 
+// Survey runner needs at least one question to render anything
+// useful — an empty active survey is just as broken as an empty
+// draft, but previously only drafts were filtered. Without this an
+// admin who saved an empty active survey would shadow every other
+// option (resolver returns it; runner shows "No questions configured.").
+function usable(s: RawSurvey): boolean {
+  return nonArchived(s) && hasQuestions(s);
+}
+
 function asSurveyWithQuestions(s: RawSurvey): SurveyWithQuestions {
   return {
     id: s.id,
@@ -89,7 +98,23 @@ export async function resolveAvailableSurveys(
       .eq("id", ctx.chosenSurveyId)
       .maybeSingle();
     const row = (data ?? null) as RawSurvey | null;
-    if (row && nonArchived(row)) return [asSurveyWithQuestions(row)];
+    if (row && usable(row)) {
+      console.info("[survey:resolver] picked chosen_survey_id", {
+        chosenSurveyId: ctx.chosenSurveyId,
+        surveyId: row.id,
+        status: row.status,
+        questionCount: row.survey_questions?.length ?? 0,
+      });
+      return [asSurveyWithQuestions(row)];
+    }
+    console.info("[survey:resolver] chosen_survey_id did not resolve", {
+      chosenSurveyId: ctx.chosenSurveyId,
+      reason: !row
+        ? "survey not found"
+        : !nonArchived(row)
+          ? "archived"
+          : "no questions",
+    });
   }
 
   // 2. Walkbook attachments — pinned + priority order.
@@ -106,8 +131,21 @@ export async function resolveAvailableSurveys(
         .from("surveys")
         .select(SELECT_SURVEY)
         .in("id", ids);
-      const out = ((rows ?? []) as RawSurvey[]).filter(nonArchived);
-      if (out.length > 0) return out.map(asSurveyWithQuestions);
+      const out = ((rows ?? []) as RawSurvey[]).filter(usable);
+      if (out.length > 0) {
+        console.info("[survey:resolver] picked walkbook attachments", {
+          walkbookId: ctx.walkbookId,
+          attachmentCount: ids.length,
+          usableCount: out.length,
+          surveyIds: out.map((s) => s.id),
+        });
+        return out.map(asSurveyWithQuestions);
+      }
+      console.info("[survey:resolver] walkbook attachments unusable", {
+        walkbookId: ctx.walkbookId,
+        attachmentCount: ids.length,
+        rowCount: (rows ?? []).length,
+      });
     }
   }
 
@@ -118,10 +156,19 @@ export async function resolveAvailableSurveys(
     .eq("district_id", ctx.districtId)
     .eq("status", "active")
     .order("priority", { ascending: false });
-  const activeList = (activeRows ?? []) as RawSurvey[];
+  const activeList = ((activeRows ?? []) as RawSurvey[]).filter(usable);
   if (activeList.length > 0) {
+    console.info("[survey:resolver] picked district active", {
+      districtId: ctx.districtId,
+      count: activeList.length,
+      surveyIds: activeList.map((s) => s.id),
+    });
     return activeList.map(asSurveyWithQuestions);
   }
+  console.info("[survey:resolver] no usable active surveys", {
+    districtId: ctx.districtId,
+    rawActive: (activeRows ?? []).length,
+  });
 
   // 4. Fallback to drafts that have content.
   const { data: draftRows } = await supabase
@@ -130,6 +177,18 @@ export async function resolveAvailableSurveys(
     .eq("district_id", ctx.districtId)
     .eq("status", "draft")
     .order("updated_at", { ascending: false });
-  const drafts = ((draftRows ?? []) as RawSurvey[]).filter(hasQuestions);
-  return drafts.map(asSurveyWithQuestions);
+  const drafts = ((draftRows ?? []) as RawSurvey[]).filter(usable);
+  if (drafts.length > 0) {
+    console.info("[survey:resolver] picked draft fallback", {
+      districtId: ctx.districtId,
+      count: drafts.length,
+      surveyIds: drafts.map((s) => s.id),
+    });
+    return drafts.map(asSurveyWithQuestions);
+  }
+  console.info("[survey:resolver] empty — no usable survey resolved", {
+    districtId: ctx.districtId,
+    rawDrafts: (draftRows ?? []).length,
+  });
+  return [];
 }
