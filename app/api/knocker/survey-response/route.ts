@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { syncKnockNow } from "@/lib/airtable/sync-knock-now";
 
 // POST /api/knocker/survey-response
 // Body: { knock_event_id, voter_id, survey_id, question_id, answer, partial }
@@ -85,5 +86,15 @@ export async function PATCH(req: Request) {
       survey_partial: !body.complete,
     })
     .eq("id", body.knock_event_id);
+
+  // Re-mirror so the Airtable Knock row's Notes field picks up the
+  // survey-response appendix the mirror builds. The Postgres trigger
+  // (knock_events_reset_airtable_sync_trg) already nulls
+  // airtable_synced_at on the survey_completed/survey_partial change
+  // above, so the cron would catch this within 2 min — this just
+  // fast-tracks it. Idempotent because mirror-knock PATCHes the
+  // existing Airtable rec id.
+  await syncKnockNow(supabase, body.knock_event_id);
+
   return NextResponse.json({ ok: true });
 }

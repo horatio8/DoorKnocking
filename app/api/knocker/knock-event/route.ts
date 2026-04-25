@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { syncKnockNow } from "@/lib/airtable/sync-knock-now";
 
 // POST /api/knocker/knock-event
 //
@@ -109,5 +110,16 @@ export async function POST(req: Request) {
     status: data.status,
     voterId: data.voter_id,
   });
-  return NextResponse.json({ event: data });
+
+  // Fire the Airtable mirror inline so the Knocks row appears
+  // within the same request instead of after the next cron tick.
+  // syncKnockNow swallows failures and stamps airtable_synced_at
+  // on success — if Airtable is down or the token's bad, the row
+  // stays at airtable_synced_at IS NULL and the cron picks it up
+  // on the next tick. We await so the door save reflects whether
+  // the mirror landed (the response carries that signal back), but
+  // never fail the request on a mirror error.
+  const mirror = await syncKnockNow(supabase, data.id);
+
+  return NextResponse.json({ event: data, mirror });
 }

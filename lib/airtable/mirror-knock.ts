@@ -40,6 +40,7 @@ interface KnockRow {
   notes: string | null;
   survey_id: string | null;
   client_event_id: string | null;
+  airtable_knock_rec_id: string | null;
 }
 
 interface VoterRow {
@@ -85,7 +86,7 @@ export async function mirrorKnockToAirtable(
   const { data: knockRow } = await supabase
     .from("knock_events")
     .select(
-      "id, household_id, voter_id, user_id, status, knocked_at, notes, survey_id, client_event_id",
+      "id, household_id, voter_id, user_id, status, knocked_at, notes, survey_id, client_event_id, airtable_knock_rec_id",
     )
     .eq("id", knockEventId)
     .maybeSingle();
@@ -224,14 +225,31 @@ export async function mirrorKnockToAirtable(
     knockFields[KNOCK_FIELDS.survey] = surveyName;
   }
 
-  const created = await airtable.batchCreate(
-    district.airtable_base_id,
-    district.airtable_knocks_table_id,
-    [{ fields: knockFields }],
-  );
-  const airtableRecId = created[0]?.id ?? null;
-  if (!airtableRecId) {
-    throw new Error("Airtable returned no record id for the Knock insert");
+  // Idempotent upsert. If the knock row already has an Airtable
+  // rec id (we successfully mirrored it before), PATCH the same
+  // record so survey-completion / notes-edit / status-change
+  // updates land on the existing Airtable row instead of
+  // creating duplicates. Otherwise CREATE and stash the new rec
+  // id so the caller can persist it.
+  let airtableRecId: string;
+  if (knock.airtable_knock_rec_id) {
+    await airtable.batchUpdate(
+      district.airtable_base_id,
+      district.airtable_knocks_table_id,
+      [{ id: knock.airtable_knock_rec_id, fields: knockFields }],
+    );
+    airtableRecId = knock.airtable_knock_rec_id;
+  } else {
+    const created = await airtable.batchCreate(
+      district.airtable_base_id,
+      district.airtable_knocks_table_id,
+      [{ fields: knockFields }],
+    );
+    const newId = created[0]?.id ?? null;
+    if (!newId) {
+      throw new Error("Airtable returned no record id for the Knock insert");
+    }
+    airtableRecId = newId;
   }
 
   // Update the linked Voter's denormalised "Last *" columns so the

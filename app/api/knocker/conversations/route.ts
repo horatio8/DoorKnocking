@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { syncKnockNow } from "@/lib/airtable/sync-knock-now";
 
 // POST /api/knocker/conversations  (multipart)
 //   audio: File
@@ -91,6 +92,11 @@ export async function POST(req: Request) {
       );
     }
     resolvedKnockId = ke.id as string;
+    // Synthetic knock created — mirror it to Airtable inline so the
+    // Knocks row is there before the conversation transcript lands
+    // (the Conversations table's Voter link points at the same voter
+    // anyway, so the two records line up in the base).
+    await syncKnockNow(supabase, resolvedKnockId);
   }
 
   const ext =
