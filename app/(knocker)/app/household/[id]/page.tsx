@@ -3,9 +3,10 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
-import type { Household, KnockEvent, Survey, SurveyQuestion, Tag, Voter } from "@/lib/types";
+import type { Household, KnockEvent, Tag, Voter } from "@/lib/types";
 import { HouseholdDetail } from "@/components/knocker/household-detail";
 import { householdKey } from "@/lib/addresses/normalize";
+import { resolveAvailableSurveys } from "@/lib/surveys/resolve-available";
 
 export const dynamic = "force-dynamic";
 
@@ -80,102 +81,40 @@ export default async function HouseholdPage({ params }: { params: { id: string }
     console.warn("household: knock_sessions query threw:", (err as Error).message);
   }
 
-  let resolvedSurveyId: string | null = open?.chosen_survey_id ?? null;
+  // Resolver returns the *list* of surveys the volunteer can run at
+  // this door. Household-detail decides what to do with the list:
+  //   - 0 surveys → save with notes/tags/voice-note, no runner.
+  //   - 1 survey  → auto-launch when the volunteer picks Home.
+  //   - 2+        → render a picker so the volunteer chooses.
+  // Resolution chain lives in lib/surveys/resolve-available.ts.
+  const availableSurveys = await resolveAvailableSurveys(supabase, {
+    districtId: hh.district_id,
+    chosenSurveyId: open?.chosen_survey_id ?? null,
+    walkbookId: open?.walkbook_id ?? null,
+  });
 
-  if (!resolvedSurveyId && open?.walkbook_id) {
-    try {
-      const { data: wbSurveys, error: wbErr } = await supabase
-        .from("walkbook_surveys")
-        .select("survey_id, pinned, priority")
-        .eq("walkbook_id", open.walkbook_id)
-        .order("pinned", { ascending: false })
-        .order("priority", { ascending: false })
-        .limit(1);
-      if (wbErr) {
-        console.warn("household: walkbook_surveys lookup failed:", wbErr.message);
-      } else {
-        resolvedSurveyId = ((wbSurveys ?? []) as Array<{ survey_id: string }>)[0]?.survey_id ?? null;
-      }
-    } catch (err) {
-      console.warn("household: walkbook_surveys query threw:", (err as Error).message);
-    }
-  }
-
-  if (!resolvedSurveyId) {
-    const { data: districtActive, error: daErr } = await supabase
-      .from("surveys")
-      .select("id")
+  const [{ data: voters }, { data: recentKnocks }, { data: standardTags }] = await Promise.all([
+    supabase
+      .from("voters")
+      .select("*")
+      .in("household_id", householdIds)
+      .order("last_name", { ascending: true }),
+    // Multi-knocker era: pull the full recent history with knocker
+    // + survey names so the volunteer at the door can see exactly
+    // who's been here, what they recorded, and under what survey.
+    supabase
+      .from("knock_events")
+      .select("*, users:user_id(full_name, email), surveys:survey_id(name)")
+      .in("household_id", householdIds)
+      .order("knocked_at", { ascending: false })
+      .limit(25),
+    supabase
+      .from("tags")
+      .select("*")
       .eq("district_id", hh.district_id)
-      .eq("status", "active")
-      .order("priority", { ascending: false })
-      .limit(1);
-    if (daErr) {
-      console.warn("household: district active survey lookup failed:", daErr.message);
-    }
-    resolvedSurveyId = ((districtActive ?? []) as Array<{ id: string }>)[0]?.id ?? null;
-  }
-
-  // Fallback: if no active survey is live yet, pick the newest
-  // draft that has at least one question. Volunteers should never
-  // hit a "no survey" dead end just because the admin hasn't hit
-  // Publish — we surface the draft + a "not yet published" banner
-  // downstream so the admin still knows to finish setup. Empty
-  // drafts are skipped because they'd give the survey runner
-  // nothing to render.
-  if (!resolvedSurveyId) {
-    const { data: draftRows } = await supabase
-      .from("surveys")
-      .select("id, survey_questions(count)")
-      .eq("district_id", hh.district_id)
-      .eq("status", "draft")
-      .order("updated_at", { ascending: false });
-    const drafts = (draftRows ?? []) as Array<{
-      id: string;
-      survey_questions: Array<{ count: number }> | { count: number } | null;
-    }>;
-    const candidate = drafts.find((d) => {
-      const qc = Array.isArray(d.survey_questions)
-        ? d.survey_questions[0]?.count ?? 0
-        : (d.survey_questions?.count ?? 0);
-      return qc > 0;
-    });
-    if (candidate) resolvedSurveyId = candidate.id;
-  }
-
-  const [{ data: voters }, { data: recentKnocks }, { data: surveyRow }, { data: standardTags }] =
-    await Promise.all([
-      supabase
-        .from("voters")
-        .select("*")
-        .in("household_id", householdIds)
-        .order("last_name", { ascending: true }),
-      // Multi-knocker era: pull the full recent history with knocker
-      // + survey names so the volunteer at the door can see exactly
-      // who's been here, what they recorded, and under what survey.
-      supabase
-        .from("knock_events")
-        .select("*, users:user_id(full_name, email), surveys:survey_id(name)")
-        .in("household_id", householdIds)
-        .order("knocked_at", { ascending: false })
-        .limit(25),
-      resolvedSurveyId
-        ? supabase
-            .from("surveys")
-            .select("*, survey_questions(*)")
-            .eq("id", resolvedSurveyId)
-            .maybeSingle()
-        : Promise.resolve({ data: null }),
-      supabase
-        .from("tags")
-        .select("*")
-        .eq("district_id", hh.district_id)
-        .eq("is_standard", true)
-        .order("label"),
-    ]);
-
-  const activeSurvey = (surveyRow ?? null) as
-    | (Survey & { survey_questions: SurveyQuestion[] })
-    | null;
+      .eq("is_standard", true)
+      .order("label"),
+  ]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -216,7 +155,7 @@ export default async function HouseholdPage({ params }: { params: { id: string }
               survey_name: s?.name ?? null,
             };
           })}
-          survey={activeSurvey}
+          availableSurveys={availableSurveys}
           standardTags={(standardTags ?? []) as Tag[]}
           sessionScriptId={open?.chosen_script_id ?? null}
           hasVoiceNoteConsent={Boolean(session.user.voice_note_consent)}

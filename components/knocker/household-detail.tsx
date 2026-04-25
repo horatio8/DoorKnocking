@@ -27,12 +27,16 @@ export type KnockHistoryEntry = KnockEvent & {
   survey_name: string | null;
 };
 
+type SurveyWithQuestions = Survey & { survey_questions: SurveyQuestion[] };
+
 interface Props {
   userId: string;
   household: Household;
   voters: Voter[];
   recentKnocks: KnockHistoryEntry[];
-  survey: (Survey & { survey_questions: SurveyQuestion[] }) | null;
+  // Full set of surveys the volunteer can run at this door. Empty
+  // = save with notes/tags only; one = auto-launch; 2+ = picker.
+  availableSurveys: SurveyWithQuestions[];
   standardTags: Tag[];
   sessionScriptId?: string | null;
   hasVoiceNoteConsent?: boolean;
@@ -51,13 +55,22 @@ export function HouseholdDetail({
   household,
   voters,
   recentKnocks,
-  survey,
+  availableSurveys,
   standardTags,
   sessionScriptId,
   hasVoiceNoteConsent = false,
 }: Props) {
   const router = useRouter();
   const recordKnock = useFieldStore((s) => s.recordKnock);
+  // Picker selection. Default to the first option (highest-priority
+  // walkbook attachment / active survey); volunteer can switch when
+  // 2+ are present. When the list is empty this stays null and the
+  // commit path saves a knock without launching the runner.
+  const [selectedSurveyId, setSelectedSurveyId] = useState<string | null>(
+    availableSurveys[0]?.id ?? null,
+  );
+  const selectedSurvey =
+    availableSurveys.find((s) => s.id === selectedSurveyId) ?? availableSurveys[0] ?? null;
   const [selectedVoter, setSelectedVoter] = useState<Voter | null>(null);
   const [activeStatus, setActiveStatus] = useState<SelectionStatus | null>(null);
   const [notes, setNotes] = useState("");
@@ -104,14 +117,19 @@ export function HouseholdDetail({
     setSubmitting(true);
     setSubmitError(null);
     const knockStatus: KnockStatus = activeStatus;
-    const shouldLaunchSurvey = activeStatus === "contacted" && survey !== null;
+    // Launch the survey runner only if (a) the volunteer marked the
+    // door 'Home', and (b) there's at least one survey to run.
+    // Otherwise we still save the knock — notes / tags / voice-note
+    // are captured by the surrounding UI without the runner.
+    const shouldLaunchSurvey =
+      activeStatus === "contacted" && selectedSurvey !== null;
     try {
       const event = await recordKnock({
         household,
         voterId: selectedVoter.id,
         status: knockStatus,
         walkbookId: null,
-        surveyId: shouldLaunchSurvey ? survey?.id ?? null : null,
+        surveyId: shouldLaunchSurvey ? selectedSurvey?.id ?? null : null,
         notes: notes.trim() || undefined,
       });
       if (shouldLaunchSurvey) {
@@ -326,17 +344,58 @@ export function HouseholdDetail({
                     />
                   </div>
                 ) : null}
-                {activeStatus === "contacted" && !survey ? (
+                {activeStatus === "contacted" && availableSurveys.length >= 2 ? (
+                  <div className="mt-4 rounded-md border border-navy-200 bg-white p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-widest text-navy-500">
+                      Pick a survey
+                    </p>
+                    <div className="mt-2 grid gap-1.5">
+                      {availableSurveys.map((s) => {
+                        const checked = s.id === selectedSurveyId;
+                        return (
+                          <label
+                            key={s.id}
+                            className={`flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 text-sm ${
+                              checked
+                                ? "border-navy-900 bg-navy-50"
+                                : "border-navy-200 bg-white"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="door-survey"
+                              checked={checked}
+                              onChange={() => setSelectedSurveyId(s.id)}
+                              className="mt-0.5 accent-navy-900"
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="block font-semibold text-navy-900">{s.name}</span>
+                              <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                                {s.survey_questions.length} question
+                                {s.survey_questions.length === 1 ? "" : "s"}
+                                {s.status !== "active" ? ` · ${s.status}` : ""}
+                              </span>
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+                {activeStatus === "contacted" && availableSurveys.length === 0 ? (
                   <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
-                    No survey is live for this district yet — ask your admin to publish one. Your
-                    knock will still be logged.
+                    No survey is live for this district yet — your knock will still log with notes,
+                    tags, and any voice recording above. Ask your admin to publish a survey in
+                    /admin/surveys.
                   </p>
                 ) : null}
-                {activeStatus === "contacted" && survey && survey.status !== "active" ? (
+                {activeStatus === "contacted" &&
+                selectedSurvey &&
+                selectedSurvey.status !== "active" ? (
                   <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
-                    Using a {survey.status} survey because nothing has been published yet — your
-                    answers still save. Tell your admin to publish &ldquo;{survey.name}&rdquo; in
-                    /admin/surveys for the official version.
+                    Using a {selectedSurvey.status} survey because nothing has been published yet —
+                    your answers still save. Tell your admin to publish &ldquo;{selectedSurvey.name}
+                    &rdquo; in /admin/surveys for the official version.
                   </p>
                 ) : null}
                 {submitError ? (
@@ -354,7 +413,11 @@ export function HouseholdDetail({
                     className="flex-1"
                     variant={activeStatus === "contacted" ? "accent" : "primary"}
                   >
-                    {activeStatus === "contacted" && survey ? "Start survey" : "Save"}
+                    {activeStatus === "contacted" && selectedSurvey
+                      ? availableSurveys.length >= 2
+                        ? `Start ${selectedSurvey.name}`
+                        : "Start survey"
+                      : "Save"}
                   </Button>
                 </div>
               </>
