@@ -36,26 +36,83 @@ const STATUS_ALIASES: Record<string, string> = {
   "refuse": "refused",
   "refused": "refused",
   "rejected": "refused",
+  "r": "refused",
   "contacted": "contacted",
   "spoke": "contacted",
   "talked": "contacted",
   "home": "contacted",
+  "c": "contacted",
   "wrong address": "wrong_address",
   "wrong person": "wrong_address",
   "wrong": "wrong_address",
   "moved": "wrong_address",
+  "m": "wrong_address",
+  "wa": "wrong_address",
+  "bad address": "wrong_address",
   "not knocked": "skip",
   "not_knocked": "skip",
   "skip": "skip",
+  // Voter-file support-level codes. These imply the voter was
+  // *contacted* (someone answered the door and stated a position),
+  // so we map them all to `contacted`. The original raw value is
+  // appended to knock_notes downstream so the support-level info
+  // isn't lost — see the import loop below.
+  "s": "contacted",
+  "supportive": "contacted",
+  "support": "contacted",
+  "strong yes": "contacted",
+  "lean yes": "contacted",
+  "yes": "contacted",
+  "n": "contacted",
+  "not supportive": "contacted",
+  "oppose": "contacted",
+  "opposed": "contacted",
+  "strong no": "contacted",
+  "lean no": "contacted",
+  "no": "contacted",
+  "u": "contacted",
+  "undecided": "contacted",
+  "persuadable": "contacted",
+  // No-answer codes from voter files.
+  "nh": "no_answer",
+  "not home": "no_answer",
+  "no one home": "no_answer",
+  "no contact": "no_answer",
+  "na": "no_answer",
+  // Come-back-later codes.
+  "cb": "come_back_later",
+  "later": "come_back_later",
 };
+
+function tryAlias(value: string): string | null {
+  if (VALID_KNOCK_STATUSES.has(value)) return value;
+  const alias = STATUS_ALIASES[value];
+  if (alias === "skip") return "__skip__";
+  if (alias && VALID_KNOCK_STATUSES.has(alias)) return alias;
+  return null;
+}
 
 function normaliseStatus(raw: string): string | null {
   const trimmed = raw.trim().toLowerCase();
   if (!trimmed) return null;
-  if (VALID_KNOCK_STATUSES.has(trimmed)) return trimmed;
-  const alias = STATUS_ALIASES[trimmed];
-  if (alias === "skip") return null;
-  if (alias && VALID_KNOCK_STATUSES.has(alias)) return alias;
+  // Direct match.
+  const direct = tryAlias(trimmed);
+  if (direct === "__skip__") return null;
+  if (direct) return direct;
+  // Many voter files use a "<code> - <description>" format (e.g.
+  // "S - Supportive", "NH - Not Home"). Try splitting on the
+  // separator and matching either half so we don't have to
+  // enumerate every "code - description" combination in the alias
+  // table. Tries a handful of common separators.
+  for (const sep of [" - ", " — ", " – ", "-", "—", "–", "/", "|", ":"]) {
+    if (!trimmed.includes(sep)) continue;
+    const parts = trimmed.split(sep).map((p) => p.trim()).filter(Boolean);
+    for (const part of parts) {
+      const hit = tryAlias(part);
+      if (hit === "__skip__") return null;
+      if (hit) return hit;
+    }
+  }
   return null;
 }
 
@@ -195,7 +252,21 @@ export async function importKnocksFromRows(
       knockerEmailCol && row[knockerEmailCol]?.trim()
         ? row[knockerEmailCol].trim().toLowerCase()
         : null;
-    const notes = notesCol ? row[notesCol]?.trim() ?? null : null;
+    const csvNotes = notesCol ? row[notesCol]?.trim() ?? null : null;
+    // Preserve the raw status string as a note when it carried
+    // information richer than the canonical enum (i.e. when the raw
+    // value, lowercased + trimmed, doesn't match a knock_status enum
+    // value). Voter-file codes like "S - Supportive" / "U - Undecided"
+    // / "N - Not Supportive" all map to `contacted` for the enum, but
+    // the support-level distinction matters for analysis. Appending
+    // it to knock_notes (or storing alone if the CSV had no notes
+    // column) keeps the info auditable until we ship a structured
+    // `support_level` column.
+    const rawTrimmed = rawStatus.trim();
+    const rawNeedsPreserving = !VALID_KNOCK_STATUSES.has(rawTrimmed.toLowerCase());
+    const notes = rawNeedsPreserving
+      ? [csvNotes, `Status: ${rawTrimmed}`].filter(Boolean).join(" · ")
+      : csvNotes;
     pending.push({ voterKey, status, knockedAt, knockerEmail, notes: notes || null });
   }
   result.attempted = pending.length;
