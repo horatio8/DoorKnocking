@@ -112,7 +112,17 @@ export async function pushFromFile(args: PushFromFileArgs): Promise<PushResult> 
     const zip = pick("zip");
     if (!address) continue;
 
-    const hhKey = pick("household_rec_id") || householdKey({ address, unit, zip });
+    // Always derive the household key from the normalised address.
+    // Earlier we honoured the source CSV's `household_rec_id` column
+    // when mapped, but voter files are commonly denormalised with one
+    // row per knock / phone / outreach event, and `HHRecId` ends up
+    // unique per row instead of per physical address. Result: 4,260
+    // "households" for 1,135 voters — one per CSV row instead of one
+    // per address. The address-derived key gives the semantic the app
+    // assumes ("one household = one physical dwelling"). Source HHRecId
+    // is ignored for dedupe; if you need a stable external id per
+    // household, derive it later from the canonical Airtable record id.
+    const hhKey = householdKey({ address, unit, zip });
     const voterKey = pick("airtable_voter_key") ||
       `${hhKey}::${pick("first_name")}-${pick("last_name")}`.toLowerCase();
 
