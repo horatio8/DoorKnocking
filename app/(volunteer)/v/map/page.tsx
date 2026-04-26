@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { loadSession } from "@/lib/auth/session";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { loadMapBundle } from "@/lib/volunteer/load-map";
-import { loadVolunteerWalkbook } from "@/lib/volunteer/load-walkbook";
+import { loadCurrentRouteForUser } from "@/lib/queue/load-route";
 import { publicEnv } from "@/lib/env";
 import { T, fontInter } from "@/lib/volunteer/tokens";
 import { MapClient } from "./map-client";
@@ -22,15 +22,12 @@ export default async function MapPage({
 
   let walkbookId = searchParams.walkbook ?? null;
   if (!walkbookId) {
-    const wb = await loadVolunteerWalkbook({
-      userId: session.user.id,
-      districtId: session.district?.id ?? session.user.default_district_id ?? null,
-    });
-    walkbookId = wb?.id ?? null;
+    const route = await loadCurrentRouteForUser(session.user.id);
+    walkbookId = route?.walkbookId ?? null;
   }
 
   if (!walkbookId) {
-    return <EmptyState>Your campaign admin hasn&rsquo;t assigned you a walkbook yet.</EmptyState>;
+    return <EmptyState>Pick a time on /v/time and we&rsquo;ll build a route from the queue.</EmptyState>;
   }
 
   const supabase = getSupabaseServiceRoleClient();
