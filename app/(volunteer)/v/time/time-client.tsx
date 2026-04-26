@@ -24,21 +24,53 @@ export function TimeClient({ initialMinutes }: { initialMinutes: number | null }
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch("/api/knocker/profile", {
+      // Save the chip preference for tomorrow's pre-select.
+      const profileRes = await fetch("/api/knocker/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ next_session_minutes: minutes }),
       });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? "Couldn't save your time. Try again.");
+      if (!profileRes.ok) {
+        const profileBody = (await profileRes.json().catch(() => ({}))) as { error?: string };
+        throw new Error(profileBody.error ?? "Couldn't save your time. Try again.");
       }
-      router.push("/v/walkbook");
+
+      // Best-effort GPS for proximity scoring; falls back to district centroid.
+      const gps = await readCurrentGps();
+
+      const queueRes = await fetch("/api/queue/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          target_minutes: minutes,
+          gps,
+          replace_existing: true,
+        }),
+      });
+      if (!queueRes.ok) {
+        const queueBody = (await queueRes.json().catch(() => ({}))) as { error?: string };
+        throw new Error(queueBody.error ?? "Couldn't build your route. Try again.");
+      }
+      const { walkbook_id } = (await queueRes.json()) as { walkbook_id: string };
+      router.push(`/v/walkbook?wb=${walkbook_id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
       setSubmitting(false);
     }
   };
+
+  const readCurrentGps = (): Promise<{ lat: number; lng: number } | null> =>
+    new Promise((resolve) => {
+      if (typeof navigator === "undefined" || !navigator.geolocation) {
+        resolve(null);
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => resolve(null),
+        { enableHighAccuracy: false, timeout: 4000, maximumAge: 60_000 },
+      );
+    });
 
   return (
     <div
