@@ -22,6 +22,8 @@ export interface GeneratedWalkbook {
   voterCount: number;
   estimatedMinutes: number;
   startingLatLng: { lat: number; lng: number } | null;
+  metresToClosest: number | null;
+  drivingMinutesToClosest: number | null;
 }
 
 interface DistrictRow {
@@ -36,7 +38,6 @@ const WRAP_BUFFER_MIN = 3;
 const MIN_SCORE = 0.15;
 const PACK_MIN_SCORE = 0.2;
 const MAX_TRAVEL_MIN_BETWEEN_STOPS = 8;
-const MAX_TRAVEL_FROM_GPS_MIN = 30;
 const SECONDS_PER_M_WALKING = 60 / 80; // ~80 m/min
 const SECONDS_PER_M_DRIVING = 60 / 600; // ~36 km/h baseline
 
@@ -87,16 +88,12 @@ export async function generateWalkbook(
     targetParty: opts.targetParty ?? null,
   });
 
-  // STEP 3 — filter and trim.
-  const filtered = scored.filter((v) => {
-    if (v.score < MIN_SCORE) return false;
-    if (gps) {
-      const m = metresBetween(gps, { lat: v.lat, lng: v.lng });
-      const minutes = travelMinutesForMetres(m, travelMode);
-      if (minutes > MAX_TRAVEL_FROM_GPS_MIN) return false;
-    }
-    return true;
-  });
+  // STEP 3 — filter on score only. We deliberately don't drop voters
+  // who are far from the volunteer's GPS — better to surface a "X min
+  // drive from the closest voter" note and let them choose, than to
+  // hand back an empty route. Time-budget packing in step 5 still
+  // controls how much travel the route absorbs.
+  const filtered = scored.filter((v) => v.score >= MIN_SCORE);
 
   const candidatePool = opts.targetMinutes === ALL_DAY_MINUTES
     ? filtered.slice(0, 100)
@@ -112,10 +109,28 @@ export async function generateWalkbook(
   const active: ScoredVoter[] = [];
   const used = new Set<string>();
   let accumulatedSeconds = 0;
-  // Seed with the highest-scoring voter as the first stop.
-  if (candidatePool[0]) {
-    active.push(candidatePool[0]);
-    used.add(candidatePool[0].voterId);
+  // First stop is the candidate closest to the volunteer's GPS — anchoring
+  // the route to where they actually are means a long drive at the start
+  // doesn't eat the whole time budget. If there's no GPS, fall back to the
+  // highest-scoring candidate so we still produce a sensible route.
+  let seed: ScoredVoter | null = null;
+  if (candidatePool.length > 0) {
+    if (gps) {
+      let bestM = Number.POSITIVE_INFINITY;
+      for (const cand of candidatePool) {
+        const m = metresBetween(gps, cand);
+        if (m < bestM) {
+          bestM = m;
+          seed = cand;
+        }
+      }
+    } else {
+      seed = candidatePool[0]!;
+    }
+  }
+  if (seed) {
+    active.push(seed);
+    used.add(seed.voterId);
     accumulatedSeconds += contactSecondsPer;
   }
   while (true) {
@@ -174,29 +189,46 @@ export async function generateWalkbook(
 
   const startingLatLng = route[0] ? { lat: route[0].lat, lng: route[0].lng } : gps;
 
+  // Distance from the volunteer's current GPS to the closest voter on the
+  // active route. Stored on the walkbook so the landing screen can render
+  // "you're X min drive from the closest voters" without re-computing.
+  const metresToClosest =
+    gps && route[0]
+      ? Math.round(metresBetween(gps, { lat: route[0].lat, lng: route[0].lng }))
+      : null;
+
   // STEP 7 — persist.
-  const { data: wbInsert, error: wbErr } = await supabase
+  const baseRow = {
+    district_id: opts.districtId,
+    knocker_id: opts.knockerId,
+    name: `Session ${formatDateLocal(now)}`,
+    kind: "dynamic",
+    ephemeral: true,
+    status: "open",
+    target_duration_minutes: opts.targetMinutes,
+    pace_multiplier: paceMultiplier,
+    travel_mode: travelMode,
+    voters_planned: route.length,
+    starting_lat: startingLatLng?.lat ?? null,
+    starting_lng: startingLatLng?.lng ?? null,
+    household_count: route.length,
+    auto_generated: true,
+    generation_seed: cryptoSafeRandomString(),
+    expires_at: new Date(now.getTime() + 12 * 3600_000).toISOString(),
+  };
+  const fullRow = { ...baseRow, metres_to_closest: metresToClosest };
+
+  let { data: wbInsert, error: wbErr } = await supabase
     .from("walkbooks")
-    .insert({
-      district_id: opts.districtId,
-      knocker_id: opts.knockerId,
-      name: `Session ${formatDateLocal(now)}`,
-      kind: "dynamic",
-      ephemeral: true,
-      status: "open",
-      target_duration_minutes: opts.targetMinutes,
-      pace_multiplier: paceMultiplier,
-      travel_mode: travelMode,
-      voters_planned: route.length,
-      starting_lat: startingLatLng?.lat ?? null,
-      starting_lng: startingLatLng?.lng ?? null,
-      household_count: route.length,
-      auto_generated: true,
-      generation_seed: cryptoSafeRandomString(),
-      expires_at: new Date(now.getTime() + 12 * 3600_000).toISOString(),
-    })
+    .insert(fullRow)
     .select("id")
     .single();
+  if (wbErr && (wbErr as { code?: string }).code === "42703") {
+    // metres_to_closest column not present yet — retry without it.
+    const retry = await supabase.from("walkbooks").insert(baseRow).select("id").single();
+    wbInsert = retry.data;
+    wbErr = retry.error;
+  }
   if (wbErr || !wbInsert) {
     throw new Error(wbErr?.message ?? "could not create walkbook");
   }
@@ -253,6 +285,9 @@ export async function generateWalkbook(
 
   const estimatedMinutes = Math.round(accumulatedSeconds / 60);
 
+  const drivingMinutesToClosest =
+    metresToClosest != null ? Math.max(1, Math.round(travelMinutesForMetres(metresToClosest, "driving"))) : null;
+
   return {
     walkbookId,
     voters: [
@@ -262,6 +297,8 @@ export async function generateWalkbook(
     voterCount: route.length,
     estimatedMinutes,
     startingLatLng,
+    metresToClosest,
+    drivingMinutesToClosest,
   };
 }
 

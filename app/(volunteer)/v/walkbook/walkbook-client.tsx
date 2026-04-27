@@ -14,6 +14,7 @@ export function WalkbookClient({
     doors: number;
     durationMins: number | null;
     start: { line1: string; line2: string; lat: number | null; lng: number | null } | null;
+    drivingMinutesToClosest?: number | null;
   };
 }) {
   const router = useRouter();
@@ -155,6 +156,25 @@ export function WalkbookClient({
           <span style={{ color: T.slate200 }}>·</span>
           <span>{durationLabel}</span>
         </div>
+
+        {walkbook.drivingMinutesToClosest != null &&
+        walkbook.drivingMinutesToClosest >= 5 ? (
+          <div
+            style={{
+              marginTop: 12,
+              padding: "10px 12px",
+              background: T.amber100,
+              border: "1px solid #FCD34D",
+              borderRadius: 8,
+              fontSize: 13,
+              lineHeight: "18px",
+              color: "#78350F",
+            }}
+          >
+            You&rsquo;re about {walkbook.drivingMinutesToClosest} min drive from the closest
+            voters.
+          </div>
+        ) : null}
 
         {walkbook.start ? (
           <div

@@ -35,29 +35,15 @@ export interface RouteBundle {
   targetMinutes: number;
   voterCount: number;
   voters: RouteVoter[];
+  metresToClosest: number | null;
+  drivingMinutesToClosest: number | null;
 }
 
 export async function loadRoute(walkbookId: string): Promise<RouteBundle | null> {
   const supabase = getSupabaseServiceRoleClient();
 
-  const { data: wb } = await supabase
-    .from("walkbooks")
-    .select(
-      "id, name, status, expires_at, created_at, target_duration_minutes, voters_planned, ephemeral",
-    )
-    .eq("id", walkbookId)
-    .maybeSingle();
-  if (!wb) return null;
-  const wbRow = wb as {
-    id: string;
-    name: string;
-    status: string;
-    expires_at: string | null;
-    created_at: string;
-    target_duration_minutes: number | null;
-    voters_planned: number | null;
-    ephemeral: boolean;
-  };
+  const wbRow = await loadWalkbookRow(supabase, walkbookId);
+  if (!wbRow) return null;
 
   const { data: rows } = await supabase
     .from("walkbook_voters")
@@ -71,6 +57,10 @@ export async function loadRoute(walkbookId: string): Promise<RouteBundle | null>
     score_at_generation: number | string;
     is_backlog: boolean;
   }>;
+  const metresToClosest = wbRow.metres_to_closest;
+  const drivingMinutesToClosest =
+    metresToClosest != null ? Math.max(1, Math.round((metresToClosest * (60 / 600)) / 60)) : null;
+
   if (voterRows.length === 0) {
     return {
       walkbookId: wbRow.id,
@@ -81,6 +71,8 @@ export async function loadRoute(walkbookId: string): Promise<RouteBundle | null>
       targetMinutes: wbRow.target_duration_minutes ?? 0,
       voterCount: 0,
       voters: [],
+      metresToClosest,
+      drivingMinutesToClosest,
     };
   }
 
@@ -174,7 +166,48 @@ export async function loadRoute(walkbookId: string): Promise<RouteBundle | null>
     targetMinutes: wbRow.target_duration_minutes ?? 0,
     voterCount: voters.filter((v) => !v.isBacklog).length,
     voters,
+    metresToClosest,
+    drivingMinutesToClosest,
   };
+}
+
+interface WalkbookHeaderRow {
+  id: string;
+  name: string;
+  status: string;
+  expires_at: string | null;
+  created_at: string;
+  target_duration_minutes: number | null;
+  voters_planned: number | null;
+  ephemeral: boolean;
+  metres_to_closest: number | null;
+}
+
+async function loadWalkbookRow(
+  supabase: ReturnType<typeof getSupabaseServiceRoleClient>,
+  walkbookId: string,
+): Promise<WalkbookHeaderRow | null> {
+  const fullSelect = await supabase
+    .from("walkbooks")
+    .select(
+      "id, name, status, expires_at, created_at, target_duration_minutes, voters_planned, ephemeral, metres_to_closest",
+    )
+    .eq("id", walkbookId)
+    .maybeSingle();
+  if (fullSelect.data) return fullSelect.data as WalkbookHeaderRow;
+  if ((fullSelect.error as { code?: string } | null)?.code === "42703") {
+    const fallback = await supabase
+      .from("walkbooks")
+      .select(
+        "id, name, status, expires_at, created_at, target_duration_minutes, voters_planned, ephemeral",
+      )
+      .eq("id", walkbookId)
+      .maybeSingle();
+    if (fallback.data) {
+      return { ...(fallback.data as object), metres_to_closest: null } as WalkbookHeaderRow;
+    }
+  }
+  return null;
 }
 
 // Convenience: grab the volunteer's most recent open ephemeral walkbook.

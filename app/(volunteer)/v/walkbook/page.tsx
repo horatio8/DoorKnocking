@@ -62,6 +62,7 @@ export default async function WalkbookLandingPage({
         doors: active.length,
         durationMins: estimatedMinutes,
         start: startingAddress,
+        drivingMinutesToClosest: route.drivingMinutesToClosest,
       }}
     />
   );
