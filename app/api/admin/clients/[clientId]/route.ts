@@ -49,6 +49,7 @@ export async function PATCH(req: Request, { params }: { params: { clientId: stri
     contact_email?: string | null;
     brand?: Brand;
     active?: boolean;
+    use_v_flow?: boolean;
   };
 
   const update: Record<string, unknown> = {};
@@ -77,6 +78,7 @@ export async function PATCH(req: Request, { params }: { params: { clientId: stri
     update.brand = { ...current, ...body.brand };
   }
   if (typeof body.active === "boolean") update.active = body.active;
+  if (typeof body.use_v_flow === "boolean") update.use_v_flow = body.use_v_flow;
 
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ error: "nothing to update" }, { status: 400 });
