@@ -5,13 +5,14 @@ import { resolveUseVFlow } from "@/lib/volunteer/flag";
 export const dynamic = "force-dynamic";
 
 // Field-app entry point. Routes the volunteer to either:
-//   - /v        → the rebuilt flow (when use_v_flow=true OR v_flow=on cookie)
-//   - /app/map  → the legacy knocker app (default)
+//   - /v        → the rebuilt flow (default; clients can opt out via the
+//                 admin settings toggle)
+//   - /app/map  → the legacy knocker app (only when use_v_flow is false
+//                 on the client OR a v_flow=off cookie is set)
 //
 // Cookie writes can't happen in a Server Component, so the ?v=on / ?v=off /
-// ?v=clear override is handled by the /api/v-flag route handler. Hitting
-// /app?v=on bounces through /api/v-flag (which sets the cookie) → back to
-// /app, which now resolves to /v on the next request.
+// ?v=clear override is handled by /api/v-flag, which sets the cookie and
+// 303s back here.
 
 export default async function AppIndex({
   searchParams,
@@ -27,7 +28,7 @@ export default async function AppIndex({
     redirect(`/api/v-flag?v=${v}`);
   }
 
-  const useV = await resolveUseVFlow(session.user.id);
+  const useV = await resolveUseVFlow(session.user);
   if (useV) redirect("/v");
   redirect("/app/map");
 }

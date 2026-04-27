@@ -7,6 +7,7 @@ import { isOAuthEnabled } from "@/lib/airtable/oauth";
 import { AirtableCredentialsCard } from "@/components/admin/airtable-credentials-card";
 import { ClientDetailsCard, type ClientDetails } from "@/components/admin/client-details-card";
 import { ClientDistricts, type DistrictRow } from "@/components/admin/client-districts";
+import { VolunteerFlowCard } from "@/components/admin/volunteer-flow-card";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,7 @@ interface ClientRow {
   brand: { primary_color?: string; accent_color?: string; short_name?: string } | null;
   contact_email: string | null;
   active: boolean;
+  use_v_flow?: boolean | null;
 }
 
 export default async function SuperAdminClientSettings({
@@ -31,13 +33,27 @@ export default async function SuperAdminClientSettings({
   if (session.user.role !== "super_admin") redirect("/admin");
 
   const supabase = getSupabaseServiceRoleClient();
-  const { data: client } = await supabase
-    .from("clients")
-    .select("id, slug, name, brand, contact_email, active")
-    .eq("slug", params.slug)
-    .maybeSingle();
-  if (!client) notFound();
-  const row = client as ClientRow;
+  // use_v_flow may not exist on the DB yet — select it tolerantly so the
+  // page still renders before migration 20260425000007 has been applied.
+  let row: ClientRow | null = null;
+  {
+    const withFlag = await supabase
+      .from("clients")
+      .select("id, slug, name, brand, contact_email, active, use_v_flow")
+      .eq("slug", params.slug)
+      .maybeSingle();
+    if (withFlag.data) {
+      row = withFlag.data as ClientRow;
+    } else if ((withFlag.error as { code?: string } | null)?.code === "42703") {
+      const fallback = await supabase
+        .from("clients")
+        .select("id, slug, name, brand, contact_email, active")
+        .eq("slug", params.slug)
+        .maybeSingle();
+      row = (fallback.data as ClientRow) ?? null;
+    }
+  }
+  if (!row) notFound();
 
   const [{ data: districtRows }, airtable] = await Promise.all([
     supabase
@@ -79,6 +95,12 @@ export default async function SuperAdminClientSettings({
       ) : null}
 
       <ClientDetailsCard client={row as ClientDetails} />
+
+      <VolunteerFlowCard
+        clientId={row.id}
+        clientName={row.name}
+        initialEnabled={row.use_v_flow ?? true}
+      />
 
       <AirtableCredentialsCard
         clientId={row.id}

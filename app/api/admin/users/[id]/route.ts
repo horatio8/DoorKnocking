@@ -46,7 +46,6 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     total_time_budget_minutes?: number;
     default_district_id?: string | null;
     active?: boolean;
-    use_v_flow?: boolean;
     add_client_access?: string[];
     remove_client_access?: string[];
     add_district_access?: string[];
@@ -75,7 +74,6 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (body.default_district_id !== undefined)
     update.default_district_id = body.default_district_id;
   if (typeof body.active === "boolean") update.active = body.active;
-  if (typeof body.use_v_flow === "boolean") update.use_v_flow = body.use_v_flow;
 
   const currentClientAccess = (current.client_access as string[] | null) ?? [];
   const currentDistrictAccess = (current.district_access as string[] | null) ?? [];

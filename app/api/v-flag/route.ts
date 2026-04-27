@@ -3,11 +3,11 @@ import { V_FLOW_COOKIE } from "@/lib/volunteer/flag";
 
 // GET /api/v-flag?v=on|off|clear
 //
-// Sets / clears the `v_flow` cookie used by /app to decide between the
-// legacy /app/map and the rebuilt /v flow. Cookie writes can't happen in
-// a Server Component, so the /app page redirects here whenever it sees a
-// ?v= param. Once the cookie is in place we 302 back to /app, which
-// resolves to the right surface on the next request.
+// Sets / clears the `v_flow` cookie used by /app to override the
+// per-client use_v_flow default. Cookie writes can't happen in a
+// Server Component, so /app redirects here whenever it sees a ?v=
+// param. We 303 back to /app, which resolves to the right surface on
+// the next request.
 
 export const dynamic = "force-dynamic";
 
