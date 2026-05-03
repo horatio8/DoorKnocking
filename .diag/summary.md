@@ -1,4 +1,4 @@
-# diag @ 2026-05-03T18:01:54.572Z
+# diag @ 2026-05-03T19:15:00.666Z
 
 ## env
 - has_NEXT_PUBLIC_SUPABASE_URL: true
@@ -35,12 +35,12 @@
 - users: 10
 - voters: 4269
 - households: 9501
-- walkbooks: 224
+- walkbooks: 225
 - walkbook_households: 2000
-- walkbook_assignments: 123
+- walkbook_assignments: 175
 - walk_time_calibration: 2
 - walkbook_generation_runs: 2
-- knock_events: 75
+- knock_events: 80
 - surveys: 3
 - survey_questions: 11
 - survey_responses: 25
@@ -50,7 +50,7 @@
 
 ## vercel
 - state: READY
-- sha: 843226e
-- target: production
-- created: 2026-05-03T17:04:39Z
-- url: door-knocking-fatelbwo1-tellerconsulting.vercel.app
+- sha: c031a74
+- target: ?
+- created: 2026-05-03T18:13:00Z
+- url: door-knocking-gxm2hun9b-tellerconsulting.vercel.app
