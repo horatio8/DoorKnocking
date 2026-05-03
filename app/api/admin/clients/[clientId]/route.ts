@@ -95,6 +95,23 @@ export async function PATCH(req: Request, { params }: { params: { clientId: stri
     if (error.code === "23505") {
       return NextResponse.json({ error: "slug already taken by another client" }, { status: 409 });
     }
+    // PostgREST returns PGRST204 when the column isn't in its schema
+    // cache — almost always because the migration that adds it hasn't
+    // been applied. Surface an actionable message instead of the raw
+    // "Could not find … in the schema cache" string.
+    if (
+      error.code === "PGRST204" ||
+      /column .* of .* in the schema cache/i.test(error.message ?? "")
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Database is missing a column this toggle needs. Apply pending migrations (supabase migration up) and try again.",
+          detail: error.message,
+        },
+        { status: 503 },
+      );
+    }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
   return NextResponse.json({ client: data });
