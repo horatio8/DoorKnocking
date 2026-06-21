@@ -1,4 +1,4 @@
-# diag @ 2026-06-21T05:16:02.886Z
+# diag @ 2026-06-21T09:27:58.235Z
 
 ## env
 - has_NEXT_PUBLIC_SUPABASE_URL: true
@@ -21,36 +21,36 @@
 - node_version: v24.14.1
 
 ## checks
-- ❌ auth.settings — status=402
-- ❌ anon.districts_select — Service for this project is restricted due to the following violations: exceed_cached_egress_quota. The project owner must upgrade their plan or remove spend caps to restore service.
-- ❌ service_role.list_users — Service for this project is restricted due to the following violations: exceed_cached_egress_quota. The project owner must upgrade their plan or remove spend caps to restore service.
-- ❌ service_role.users_count — 
+- ✅ auth.settings — status=200
+- ✅ anon.districts_select — 
+- ✅ service_role.list_users — count=1
+- ✅ service_role.users_count — count=10
 - ✅ users.orphan_check — all public.users rows have a matching auth.users entry
-- ❌ migrations.repo_vs_db — Service for this project is restricted due to the following violations: exceed_cached_egress_quota. The project owner must upgrade their plan or remove spend caps to restore service.
+- ❌ migrations.repo_vs_db — Invalid schema: supabase_migrations
 
 ## tables
-- clients: ERROR: 
-- client_credentials: ERROR: 
-- districts: ERROR: 
-- users: ERROR: 
-- voters: ERROR: 
-- households: ERROR: 
-- walkbooks: ERROR: 
-- walkbook_households: ERROR: 
-- walkbook_assignments: ERROR: 
-- walk_time_calibration: ERROR: 
-- walkbook_generation_runs: ERROR: 
-- knock_events: ERROR: 
-- surveys: ERROR: 
-- survey_questions: ERROR: 
-- survey_responses: ERROR: 
-- tags: ERROR: 
-- voter_tags: ERROR: 
+- clients: 2
+- client_credentials: 2
+- districts: 2
+- users: 10
+- voters: 4269
+- households: 9501
+- walkbooks: 225
+- walkbook_households: 2000
+- walkbook_assignments: 175
+- walk_time_calibration: 2
+- walkbook_generation_runs: 2
+- knock_events: 84
+- surveys: 3
+- survey_questions: 11
+- survey_responses: 31
+- tags: 0
+- voter_tags: 0
 
 
 ## vercel
 - state: READY
-- sha: f051f3f
+- sha: e04cba5
 - target: production
-- created: 2026-06-20T23:47:26Z
-- url: door-knocking-6tw9soiif-tellerconsulting.vercel.app
+- created: 2026-06-21T05:16:08Z
+- url: door-knocking-lntlgs5xv-tellerconsulting.vercel.app
