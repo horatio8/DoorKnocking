@@ -1,4 +1,4 @@
-# diag @ 2026-07-07T09:58:22.547Z
+# diag @ 2026-07-07T12:37:19.842Z
 
 ## env
 - has_NEXT_PUBLIC_SUPABASE_URL: true
@@ -18,7 +18,7 @@
 - has_ANTHROPIC_API_KEY: true
 - has_RESEND_API_KEY: true
 - has_NEXT_PUBLIC_APP_URL: true
-- node_version: v24.14.1
+- node_version: v24.18.0
 
 ## checks
 - ✅ auth.settings — status=200
@@ -50,7 +50,7 @@
 
 ## vercel
 - state: READY
-- sha: f3e050e
+- sha: b7fd717
 - target: production
-- created: 2026-07-07T05:49:21Z
-- url: door-knocking-8putfkmx5-tellerconsulting.vercel.app
+- created: 2026-07-07T09:58:30Z
+- url: door-knocking-ad0su0hi9-tellerconsulting.vercel.app
