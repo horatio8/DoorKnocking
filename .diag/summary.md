@@ -1,4 +1,4 @@
-# diag @ 2026-08-27T14:37:18.435Z
+# diag @ 2026-08-28T00:22:42.625Z
 
 ## env
 - has_NEXT_PUBLIC_SUPABASE_URL: true
@@ -50,7 +50,7 @@
 
 ## vercel
 - state: READY
-- sha: 9a9cbba
+- sha: fde5532
 - target: production
-- created: 2026-08-27T03:32:32Z
-- url: door-knocking-2scdzq1p6-tellerconsulting.vercel.app
+- created: 2026-08-27T14:37:27Z
+- url: door-knocking-92sk3ptlx-tellerconsulting.vercel.app
